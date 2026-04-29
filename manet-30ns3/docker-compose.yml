@@ -1,0 +1,57 @@
+version: '3.8'
+
+# ---------------------------------------------------------------------------
+# MANET ns-3 Controller + Node image build composition
+#
+# `ns3-controller` is the long-running service: it hosts the FastAPI control
+# plane, the ns-3 Python simulator, and the orchestrator that spawns/destroys
+# `manet-node` containers at runtime via the Docker socket.
+#
+# `node-image-builder` is a one-shot build target whose only purpose is to
+# produce the `manet-node:latest` image used by the controller at runtime.
+# It does not run as a service.
+#
+# Bring up:
+#   docker compose build node-image-builder ns3-controller
+#   docker compose up -d ns3-controller
+#   curl localhost:8000/api/health
+#   curl -XPOST localhost:8000/api/sim/start \
+#        -H 'content-type: application/json' \
+#        -d '{"preset":"debug"}'
+# ---------------------------------------------------------------------------
+
+services:
+  ns3-controller:
+    build:
+      context: .
+      dockerfile: ns3-controller/Dockerfile.controller
+    image: ns3-controller:latest
+    container_name: ns3-controller
+    privileged: true
+    network_mode: host
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+      - SYS_ADMIN
+    environment:
+      - LOG_LEVEL=INFO
+      - MANET_WEB_DIR=/app/dist
+    volumes:
+      # Speak Docker to spawn node containers
+      - /var/run/docker.sock:/var/run/docker.sock
+      # Persist netns symlinks across IPRoute/NetNS calls
+      - /var/run/netns:/var/run/netns
+      # Optional: surface pcap/ascii traces and FlowMonitor XML to the host
+      - ./results:/results
+    restart: unless-stopped
+
+  # Build-only target. The controller spawns these containers at runtime via
+  # the Docker socket; we never start this service directly.
+  node-image-builder:
+    profiles: ["build"]
+    build:
+      context: ./node
+      dockerfile: Dockerfile.node
+    image: manet-node:latest
+    command: ["/bin/true"]
+    restart: "no"

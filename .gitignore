@@ -1,0 +1,47 @@
+# Node / npm
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.npm/
+.yarn/
+
+# 构建产物
+app/dist/
+**/build/
+**/__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# 编辑器/IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Python 虚拟环境
+.venv/
+venv/
+env/
+
+# 仿真输出
+manet-30ns3/results/
+manet-30ns3/*.pcap
+manet-30ns3/*.tr
+*.flowmon
+
+# Docker / ccache
+.ccache/
+*.tmp
+
+# 日志
+*.log
+
+# 大型归档（需要时再单独提交，避免污染历史）
+manet-30ns3.tar.gz
+
+# 系统
+Thumbs.db

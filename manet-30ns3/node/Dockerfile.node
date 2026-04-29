@@ -1,0 +1,29 @@
+# MANET AdHoc Node Container (Multi-Arch: x86_64 / ARM64)
+#
+# Supports three USER_APP_MODE values via node-entrypoint.sh:
+#   bind  - bind-mount /opt/userapp from host; entrypoint runs ${USER_APP_CMD:-/opt/userapp/run.sh}
+#   image - this image is the base; user supplies a derived image with /opt/userapp/run.sh baked in
+#   exec  - container starts idle (with optional sshd); backend pushes binaries via docker exec / ssh
+FROM --platform=$TARGETPLATFORM ubuntu:20.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update && apt-get install -y \
+    iproute2 iputils-ping net-tools \
+    iperf3 tcpdump ethtool curl wget \
+    bridge-utils iw wireless-tools \
+    socat nmap iptraf-ng \
+    python3 python3-pip \
+    openssh-server \
+    procps \
+    && rm -rf /var/lib/apt/lists/* \
+    && mkdir -p /run/sshd /opt/userapp
+
+COPY node-entrypoint.sh /node-entrypoint.sh
+RUN chmod +x /node-entrypoint.sh
+
+# Default user-app mode: keep container alive idle, allow exec / ssh.
+ENV USER_APP_MODE=exec
+ENV NODE_ROLE=client
+
+ENTRYPOINT ["/node-entrypoint.sh"]
