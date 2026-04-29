@@ -93,7 +93,7 @@ Container-0 用户应用
 cd manet-30ns3
 
 # 1. 构建镜像（节点镜像 + 控制器镜像）
-docker compose --profile builder build node-image-builder
+docker compose --profile build build node-image-builder
 docker compose build ns3-controller
 
 # 2. 启动控制器（FastAPI 监听 :8000，特权模式 + host 网络）
@@ -351,7 +351,7 @@ manet-30ns3/
 cd manet-30ns3
 
 # 1. 构建
-docker compose --profile builder build node-image-builder
+docker compose --profile build build node-image-builder
 docker compose build ns3-controller
 # 预期：ns3-controller 镜像含 /opt/ns-3.45/build/bindings/python/ns/__init__.py
 

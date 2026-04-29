@@ -50,7 +50,7 @@ cd manet-30ns3
 
 # 1. 构建镜像（节点 + 控制器）。controller 构建会编译 NS-3.45 并启用
 #    --enable-python-bindings；ccache 已挂载，重复构建会更快。
-docker compose --profile builder build node-image-builder
+docker compose --profile build build node-image-builder
 docker compose build ns3-controller
 
 # 2. 拉起控制器（FastAPI 监听 :8000，network_mode: host，特权模式）。
@@ -150,7 +150,7 @@ controller/
 cd manet-30ns3
 
 # 1. 构建
-docker compose --profile builder build node-image-builder
+docker compose --profile build build node-image-builder
 docker compose build ns3-controller
 # 预期：ns3-controller 镜像内存在 /opt/ns-3.45/build/bindings/python/ns/__init__.py
 
