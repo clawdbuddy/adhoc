@@ -1,0 +1,23 @@
+name: manet-controller
+channels:
+  - defaults
+  - conda-forge
+dependencies:
+  - python=3.10
+  - pip
+  - libboost
+  - libpcap
+  - gsl
+  # 系统网络工具（物理主机上需要）
+  - iproute2  # 仅 Linux 可用
+  - pip:
+    - ns3
+    - fastapi==0.110.*
+    - "uvicorn[standard]"==0.29.*
+    - pydantic==2.*
+    - pydantic-settings==2.*
+    - docker==7.*
+    - pyroute2==0.7.*
+    - websockets==12.*
+    - httpx==0.27.*
+    - pyinstaller==6.*

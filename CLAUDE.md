@@ -144,6 +144,31 @@ controller/
 
 当前已落地的是**单机 MVP**。多机为已设计但延后到第二阶段：一台机器运行 ns-3 控制器，独占 `br-ns3` 与所有 TAP；其它机器只跑节点容器，其 `veth*-h` 端不接本地 bridge，而是接到一个 VXLAN 网卡，把控制器主机上的 `br-ns3` 在 L2 上扩展过来。`netns.py` 与 `docker_mgr.py` 增加 `host` 参数；ns-3 进程仍只有一个，从而保证仿真时间与 PHY 模型一致。详见设计文档 §9。
 
+### 物理主机部署（conda 环境）
+
+除 Docker 容器方式外，控制器也可直接部署在物理主机上，通过 conda 管理 Python 环境：
+
+```bash
+cd manet-30ns3
+
+# 1. 安装（需要 root，自动装系统依赖 + 创建 conda 环境 + 装 systemd 服务）
+sudo bash setup-controller.sh
+
+# 2. 启动
+conda activate manet-controller
+PYTHONPATH=./controller MANET_WEB_DIR=./web-manager \
+  python3 -m uvicorn controller.api.main:app --host 0.0.0.0 --port 8000
+
+# 或使用 systemd
+sudo systemctl start manet-controller
+```
+
+**打包为独立可执行程序**（可选）：
+```bash
+# 生成 dist/manet-controller/ 目录，内含所有依赖，可直接复制到其他同架构机器运行
+bash build-controller.sh
+```
+
 ## 验证（仅 Linux）
 
 设计文档 §11 中的端到端冒烟测试。要求 x86 Ubuntu 20.04（或等价系统），Docker ≥ 20.10，内核加载 `tun` / `bridge` / `veth`。
