@@ -348,7 +348,7 @@ cd manet-30ns3
 # 1. 构建
 docker compose --profile build build node-image-builder
 docker compose build ns3-controller
-# 预期：ns3-controller 镜像含 /opt/ns-3.45/build/bindings/python/ns/__init__.py
+# 预期：ns3-controller 镜像内 `python3 -c "from ns import ns"` 成功导入
 
 # 2. 起服
 docker compose up -d ns3-controller
@@ -386,7 +386,7 @@ ip link | grep -E 'br-ns3|tap-|veth' || echo "clean"
 
 | 资源 | 推荐 | 备注 |
 |------|------|------|
-| CPU | 4 核+ | NS-3.45 build 期间会跑 `-j$(nproc)` |
+| CPU | 4 核+ | `pip install ns3` 期间可能编译少量扩展 |
 | 内存 | 4 GB+ | 镜像构建峰值会用到 ~3 GB |
 | 编译耗时 | ~5–10 min | ccache 命中后通常 < 1 min |
 
