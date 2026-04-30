@@ -85,11 +85,11 @@ docker compose down
 
 - 每个节点是一个用 `network_mode="none"` 启动的 Docker 容器（独立 netns，无 Docker bridge），容器之间无法直接相互访问。
 - 对每个节点 `i`，`controller/orchestrator/netns.py`（基于 pyroute2）创建一对 `veth`：宿主端 `veth{i}` 接到 Linux bridge `br-ns3`；对端 `vethns{i}` 被移入容器的 netns 并改名为 `eth0`。
-- 同时创建 `tap-{i}` 并挂到 `br-ns3`。控制器容器内，ns-3 通过 `TapBridgeHelper` 在 `UseBridge` 模式下把每个 TAP 与一个 `AdhocWifiMac` NetDevice 绑定。
-- 结果：`manet-node-A:eth0` 发出的每一帧都会经过 `br-ns3` → `tap-A` → ns-3，由 `AdhocWifiMac` 与配置好的 PHY/信道/路径损耗/衰落栈决定它能否到达 `tap-B` → `manet-node-B:eth0`。Linux bridge 自身永远不会让节点间的流量短路——因为没有任何容器之间存在可路由的直连路径。
+- 同时创建 `tap-{i}` 并挂到 `br-ns3`。控制器容器内，ns-3 通过 `TapBridgeHelper` 在 `UseBridge` 模式下把每个 TAP 与一个 ns-3 WifiNetDevice 绑定。默认配置下，WifiNetDevice 由 `MeshHelper`（802.11s + HWMP）创建，运行在 SpectrumWifiPhy 上、中心频率 590 MHz（覆盖 500–680 MHz UHF 频段）、Friis 路径损耗按 4 km 视距预算调好（30 dBm Tx + 3 dBi 天线 + −92 dBm 接收灵敏度，余约 15 dB）。`mac_mode="adhoc"` 可退回到 `AdhocWifiMac`。
+- 结果：`manet-node-A:eth0` 发出的每一帧都会经过 `br-ns3` → `tap-A` → ns-3，由 mesh PHY/MAC 与配置好的传播模型决定它能否被任何处于半径 ~4 km 内的对端接收；超出单跳视距的目标节点由 HWMP 自动在中间节点之间多跳转发。Linux bridge 自身永远不会让节点间的流量短路——因为没有任何容器之间存在可路由的直连路径。
 - 子网 `192.168.100.0/24`；节点 `i` 分配 `192.168.100.(10+i)`，bridge IP 是 `192.168.100.1`。节点 0 是 `server`，节点 15 是 `gateway`，其余是 `client`（在 `controller/api/state.py:default_node_specs` 中设置）。
 
-调试连通性时务必记住：**`UseBridge` 是 L2 模式**——安装在 ns-3 IP 协议栈上的 AODV/OLSR/DSDV/DSR 路由协议只能看到 ns-3 自己的控制面流量，**看不到用户载荷**。多跳转发用户载荷必须由容器内部运行的应用软件完成；ns-3 仅模拟相邻无线电之间的信道。
+多跳模型说明：默认 `mac_mode="mesh"` 时，整张 mesh 在容器视角下表现为单一 L2 广播域，多跳转发由 ns-3 mesh 模块的 HWMP 在 L2 完成，容器内部不需要再跑 batman-adv / olsrd 之类的 L2 mesh 协议。`mac_mode="adhoc"` 是历史 fallback 路径——在该模式下 `UseBridge` 仅承担单跳 L2 桥接，安装在 ns-3 IP 协议栈上的 AODV/OLSR/DSDV/DSR 只看得到 ns-3 自己的控制面流量、看不到容器载荷，因此跨多跳的容器流量必须由容器内部的软件（如 batman-adv）自己处理。
 
 ### FastAPI 控制平面 (`controller/`)
 
@@ -188,7 +188,7 @@ curl -X POST localhost:8000/api/sim/stop
 ip link | grep -E 'br-ns3|tap-|veth' || echo "clean"   # 期望输出 "clean"
 ```
 
-如果第 1 步失败（cppyy 在 ARM 上构建偶有不稳，或 pip 解析到不兼容的 wheel），请把 ns-3 钉在当前 commit 并加 `--no-cache` 重试。设计文档 §12 列出了三类已知风险（Python 绑定稳定性、大规模 N 时 TapBridge 实时模式回压、特权控制器的攻击面）。
+如果第 1 步失败（pip 解析到不兼容的 wheel，或 ns-3 cmake 阶段卡在某个模块），请加 `--no-cache` 重试一次；持续失败时把 ns-3 commit 钉死再排查。设计文档 §12 列出了三类已知风险（Python 绑定稳定性、大规模 N 时 TapBridge 实时模式回压、特权控制器的攻击面）。
 
 ## 工作笔记
 

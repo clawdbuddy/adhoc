@@ -18,10 +18,12 @@ RUN apt-get update && apt-get install -y \
     iproute2 tcpdump iw wireless-tools socat nmap \
     && rm -rf /var/lib/apt/lists/*
 
-# Python deps for ns-3 bindings (cppyy-based) + orchestrator runtime
+# Python deps：ns-3.45 的 Python bindings 由 ns-3 自带的 pybind11/cmake 在编译期
+# 直接生成 .so，运行期不再需要 cppyy；这里只装 orchestrator runtime + pybind11
+# 头文件以避免极端情况下 ns-3 cmake 找不到。
 RUN python3 -m pip install --no-cache-dir --upgrade pip setuptools wheel \
+    && python3 -m pip install --no-cache-dir pybind11 \
     && python3 -m pip install --no-cache-dir \
-        cppyy==2.4.* pybind11 \
         fastapi==0.110.* "uvicorn[standard]"==0.29.* \
         pydantic==2.* pydantic-settings==2.* \
         docker==7.* pyroute2==0.7.* \
@@ -60,20 +62,20 @@ RUN wget -q https://www.nsnam.org/releases/ns-${NS3_VERSION}.tar.bz2 \
 
 # --- 5. Configure & build NS-3 (AdHoc full modules) ---
 # Modules: core+network+internet+wifi+mobility+tap-bridge+
-#          aodv+olsr+dsdv+dsr+flow-monitor+propagation+spectrum
+#          aodv+olsr+dsdv+dsr+mesh+flow-monitor+propagation+spectrum
 WORKDIR /opt/ns3/ns-3
 RUN if [ -f /etc/ns3-build-env ]; then export $(cat /etc/ns3-build-env | xargs); fi && \
     ./ns3 configure \
     --build-profile=optimized \
     --enable-examples --enable-tests \
     --enable-python-bindings \
-    --enable-modules="core;network;internet;wifi;mobility;tap-bridge;flow-monitor;propagation;spectrum;aodv;olsr;dsdv;dsr" \
+    --enable-modules="core;network;internet;wifi;mobility;tap-bridge;flow-monitor;propagation;spectrum;aodv;olsr;dsdv;dsr;mesh" \
     && ./ns3 build -j$(nproc)
 
 # --- 6. Verify (C++ + Python bindings) ---
 RUN ./ns3 run hello-simulator
 RUN PYTHONPATH="/opt/ns3/ns-3/build/bindings/python:${PYTHONPATH}" \
-    python3 -c "from ns import ns; _ = ns.core.Simulator; _ = ns.wifi.WifiHelper; _ = ns.tap_bridge.TapBridgeHelper; print('ns-3 python bindings OK')"
+    python3 -c "from ns import ns; _ = ns.core.Simulator; _ = ns.wifi.WifiHelper; _ = ns.tap_bridge.TapBridgeHelper; _ = ns.mesh.MeshHelper; _ = ns.spectrum.MultiModelSpectrumChannel; print('ns-3 python bindings OK (含 mesh + spectrum)')"
 
 # --- 6. Environment ---
 ENV NS3_DIR=/opt/ns3/ns-3

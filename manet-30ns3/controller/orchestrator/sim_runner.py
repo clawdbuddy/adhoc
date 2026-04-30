@@ -155,9 +155,13 @@ class SimRunner:
         log.info("created %d ns-3 nodes", cfg.n_nodes)
 
         # 3. Channel + PHY
-        channel = self._build_channel(ns, cfg)
-        phy = ns.wifi.YansWifiPhyHelper()
-        phy.SetChannel(channel.Create())
+        # phy_model="spectrum" 启用 SpectrumWifiPhy + MultiModelSpectrumChannel；
+        # phy_model="yans" 维持原 Yans 路径（向后兼容）。两者都通过 Friis 把传播
+        # 损耗钉死在 cfg.frequency_mhz，保证 4 km LOS 物理预算与 UHF 一致。
+        if cfg.phy_model == "spectrum":
+            phy = self._build_spectrum_phy(ns, cfg)
+        else:
+            phy = self._build_yans_phy(ns, cfg)
         phy.Set("TxPowerStart", ns.core.DoubleValue(cfg.tx_power_start))
         phy.Set("TxPowerEnd", ns.core.DoubleValue(cfg.tx_power_end))
         phy.Set("TxPowerLevels", ns.core.UintegerValue(cfg.tx_power_levels))
@@ -171,13 +175,18 @@ class SimRunner:
         wifi.SetStandard(self._wifi_standard(ns, cfg.standard))
         self._apply_rate_control(ns, wifi, cfg)
 
-        # 5. AdHoc MAC
-        mac = ns.wifi.WifiMacHelper()
-        mac.SetType(
-            "ns3::AdhocWifiMac",
-            "Ssid", ns.wifi.SsidValue(ns.wifi.Ssid(cfg.ssid)),
-        )
-        devices = wifi.Install(phy, mac, nodes)
+        # 5. MAC：mac_mode="mesh" 启用 802.11s + HWMP，由 ns-3 mesh 模块在 L2
+        #    层完成多跳转发；mac_mode="adhoc" 维持原 AdhocWifiMac（无多跳，由
+        #    上层路由协议或容器内软件负责）。
+        if cfg.mac_mode == "mesh":
+            devices = self._install_mesh(ns, cfg, phy, nodes)
+        else:
+            mac = ns.wifi.WifiMacHelper()
+            mac.SetType(
+                "ns3::AdhocWifiMac",
+                "Ssid", ns.wifi.SsidValue(ns.wifi.Ssid(cfg.ssid)),
+            )
+            devices = wifi.Install(phy, mac, nodes)
 
         # 6. Mobility
         self._install_mobility(ns, cfg, nodes)
@@ -230,17 +239,94 @@ class SimRunner:
         log.info("Simulator.Run() end")
 
     # -------------------------------------------------- channel / propagation
-    def _build_channel(self, ns: Any, cfg: SimConfig) -> Any:
+    def _build_yans_phy(self, ns: Any, cfg: SimConfig) -> Any:
+        """YansWifiChannel + YansWifiPhyHelper（旧路径，向后兼容）。"""
         ch = ns.wifi.YansWifiChannelHelper()
-
-        # Delay
         if cfg.propagation_delay == "ConstantSpeed":
             ch.SetPropagationDelay("ns3::ConstantSpeedPropagationDelayModel")
         else:
             ch.SetPropagationDelay("ns3::RandomPropagationDelayModel")
+        self._add_yans_path_loss(ns, ch, cfg)
+        if cfg.enable_fading:
+            self._add_yans_fading(ns, ch, cfg)
+        phy = ns.wifi.YansWifiPhyHelper()
+        phy.SetChannel(ch.Create())
+        return phy
 
-        # Path loss
+    def _build_spectrum_phy(self, ns: Any, cfg: SimConfig) -> Any:
+        """SpectrumWifiPhy + MultiModelSpectrumChannel。
+
+        Friis 路径损耗的 Frequency 属性被钉到 cfg.frequency_mhz（默认 590 MHz），
+        使距离-衰减曲线与 UHF 物理一致；ns-3 内部 802.11a 5 GHz 的频道号只是
+        载波/调制配置，不影响传播预算。
+        """
+        spec_chan = ns.spectrum.MultiModelSpectrumChannel()
+
+        # 路径损耗：FreeSpace 走 Friis（带 frequency_mhz）；其余走 LogDistance/Two-Ray/...
+        loss = self._make_path_loss_object(ns, cfg)
+        if loss is not None:
+            spec_chan.AddPropagationLossModel(loss)
+
+        if cfg.enable_fading and cfg.fading_model == "Nakagami":
+            nak = ns.propagation.NakagamiPropagationLossModel()
+            nak.SetAttribute("m0", ns.core.DoubleValue(cfg.nakagami_m0))
+            nak.SetAttribute("m1", ns.core.DoubleValue(cfg.nakagami_m1))
+            nak.SetAttribute("m2", ns.core.DoubleValue(cfg.nakagami_m2))
+            nak.SetAttribute("Distance1", ns.core.DoubleValue(cfg.nakagami_d1))
+            nak.SetAttribute("Distance2", ns.core.DoubleValue(cfg.nakagami_d2))
+            spec_chan.AddPropagationLossModel(nak)
+
+        # 传播延迟模型
+        if cfg.propagation_delay == "ConstantSpeed":
+            delay = ns.propagation.ConstantSpeedPropagationDelayModel()
+        else:
+            delay = ns.propagation.RandomPropagationDelayModel()
+        spec_chan.SetPropagationDelayModel(delay)
+
+        phy = ns.wifi.SpectrumWifiPhyHelper()
+        phy.SetChannel(spec_chan)
+        # 频段表里 590 MHz 不是合法 802.11 频道，因此 SpectrumWifiPhy 内部仍按
+        # 默认的 802.11a 5GHz 频道号工作；真实物理频段语义由 Friis 的 Frequency
+        # 决定。Logger 里把 cfg.frequency_mhz 打出来便于审计。
+        log.info(
+            "SpectrumWifiPhy: 中心频率 %.0f MHz / 带宽 %d MHz / 视距目标 %.0f m",
+            cfg.frequency_mhz, cfg.channel_width_mhz, cfg.range_target_m,
+        )
+        return phy
+
+    @staticmethod
+    def _make_path_loss_object(ns: Any, cfg: SimConfig) -> Any | None:
         pl = cfg.path_loss_model
+        freq_hz = float(cfg.frequency_mhz) * 1e6
+        if pl == "FreeSpace":
+            m = ns.propagation.FriisPropagationLossModel()
+            m.SetAttribute("Frequency", ns.core.DoubleValue(freq_hz))
+            m.SetAttribute("MinLoss", ns.core.DoubleValue(0.0))
+            return m
+        if pl == "LogDistance":
+            m = ns.propagation.LogDistancePropagationLossModel()
+            m.SetAttribute("Exponent", ns.core.DoubleValue(cfg.path_loss_exponent))
+            m.SetAttribute("ReferenceLoss", ns.core.DoubleValue(cfg.path_loss_ref_loss))
+            m.SetAttribute("ReferenceDistance", ns.core.DoubleValue(cfg.path_loss_ref_distance))
+            return m
+        if pl == "TwoRayGround":
+            m = ns.propagation.TwoRayGroundPropagationLossModel()
+            m.SetAttribute("Frequency", ns.core.DoubleValue(freq_hz))
+            return m
+        if pl == "ThreeLogDistance":
+            return ns.propagation.ThreeLogDistancePropagationLossModel()
+        if pl == "Cost231":
+            return ns.propagation.Cost231PropagationLossModel()
+        if pl == "Range":
+            m = ns.propagation.RangePropagationLossModel()
+            m.SetAttribute("MaxRange", ns.core.DoubleValue(cfg.range_target_m))
+            return m
+        return None
+
+    @staticmethod
+    def _add_yans_path_loss(ns: Any, ch: Any, cfg: SimConfig) -> None:
+        pl = cfg.path_loss_model
+        freq_hz = float(cfg.frequency_mhz) * 1e6
         if pl == "LogDistance":
             ch.AddPropagationLoss(
                 "ns3::LogDistancePropagationLossModel",
@@ -249,9 +335,16 @@ class SimRunner:
                 "ReferenceDistance", ns.core.DoubleValue(cfg.path_loss_ref_distance),
             )
         elif pl == "FreeSpace":
-            ch.AddPropagationLoss("ns3::FriisPropagationLossModel")
+            ch.AddPropagationLoss(
+                "ns3::FriisPropagationLossModel",
+                "Frequency", ns.core.DoubleValue(freq_hz),
+                "MinLoss", ns.core.DoubleValue(0.0),
+            )
         elif pl == "TwoRayGround":
-            ch.AddPropagationLoss("ns3::TwoRayGroundPropagationLossModel")
+            ch.AddPropagationLoss(
+                "ns3::TwoRayGroundPropagationLossModel",
+                "Frequency", ns.core.DoubleValue(freq_hz),
+            )
         elif pl == "ThreeLogDistance":
             ch.AddPropagationLoss("ns3::ThreeLogDistancePropagationLossModel")
         elif pl == "Cost231":
@@ -259,24 +352,49 @@ class SimRunner:
         elif pl == "Range":
             ch.AddPropagationLoss(
                 "ns3::RangePropagationLossModel",
-                "MaxRange", ns.core.DoubleValue(250.0),
+                "MaxRange", ns.core.DoubleValue(cfg.range_target_m),
             )
 
-        # Fading
-        if cfg.enable_fading:
-            if cfg.fading_model == "Nakagami":
-                ch.AddPropagationLoss(
-                    "ns3::NakagamiPropagationLossModel",
-                    "m0", ns.core.DoubleValue(cfg.nakagami_m0),
-                    "m1", ns.core.DoubleValue(cfg.nakagami_m1),
-                    "m2", ns.core.DoubleValue(cfg.nakagami_m2),
-                    "Distance1", ns.core.DoubleValue(cfg.nakagami_d1),
-                    "Distance2", ns.core.DoubleValue(cfg.nakagami_d2),
-                )
-            elif cfg.fading_model == "Jakes":
-                ch.AddPropagationLoss("ns3::JakesPropagationLossModel")
+    @staticmethod
+    def _add_yans_fading(ns: Any, ch: Any, cfg: SimConfig) -> None:
+        if cfg.fading_model == "Nakagami":
+            ch.AddPropagationLoss(
+                "ns3::NakagamiPropagationLossModel",
+                "m0", ns.core.DoubleValue(cfg.nakagami_m0),
+                "m1", ns.core.DoubleValue(cfg.nakagami_m1),
+                "m2", ns.core.DoubleValue(cfg.nakagami_m2),
+                "Distance1", ns.core.DoubleValue(cfg.nakagami_d1),
+                "Distance2", ns.core.DoubleValue(cfg.nakagami_d2),
+            )
+        elif cfg.fading_model == "Jakes":
+            ch.AddPropagationLoss("ns3::JakesPropagationLossModel")
 
-        return ch
+    # -------------------------------------------------------------- mesh MAC
+    def _install_mesh(self, ns: Any, cfg: SimConfig, phy: Any, nodes: Any) -> Any:
+        """802.11s mesh + HWMP routing：L2 多跳由 ns-3 mesh 模块原地完成。
+
+        TapBridge UseBridge 仍可使用——整张 mesh 在容器视角下表现为单一 L2
+        广播域，距离超出单跳 LOS 的节点之间的报文由 HWMP 路径选择算法自动
+        通过中间节点中继。不再需要在容器内运行额外的路由 daemon。
+        """
+        mesh_helper = ns.mesh.MeshHelper.Default()
+        mesh_helper.SetStackInstaller("ns3::Dot11sStack")
+        mesh_helper.SetStandard(self._wifi_standard(ns, cfg.standard))
+        # RandomStart：mesh 节点上电后随机抖动（避免同时发 BCN）
+        mesh_helper.SetMacType("RandomStart", ns.core.TimeValue(ns.core.Seconds(0.1)))
+        # 单接口模式即可——多接口 mesh 主要用于多频段聚合，不在本场景目标内。
+        mesh_helper.SetNumberOfInterfaces(1)
+        mesh_helper.SetRemoteStationManager(
+            "ns3::ConstantRateWifiManager",
+            "DataMode", ns.core.StringValue(cfg.data_rate),
+            "ControlMode", ns.core.StringValue(cfg.data_rate),
+        )
+        devices = mesh_helper.Install(phy, nodes)
+        log.info(
+            "Mesh (802.11s/HWMP) installed on %d 节点，data_rate=%s",
+            cfg.n_nodes, cfg.data_rate,
+        )
+        return devices
 
     # ---------------------------------------------- wifi standard + rate ctrl
     @staticmethod

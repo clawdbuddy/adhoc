@@ -23,6 +23,7 @@ Standard = Literal[
     "80211n-2.4GHz", "80211n-5GHz",
     "80211ac", "80211ax-2.4GHz", "80211ax-5GHz",
 ]
+PhyModel = Literal["yans", "spectrum"]
 PathLossModel = Literal[
     "LogDistance", "FreeSpace", "TwoRayGround", "ThreeLogDistance", "Cost231", "Range",
 ]
@@ -30,6 +31,7 @@ FadingModel = Literal["Nakagami", "Jakes"]
 PropagationDelay = Literal["ConstantSpeed", "Random"]
 RateControl = Literal["Arf", "Aarf", "Onoe", "Constant", "Minstrel"]
 RoutingProtocol = Literal["aodv", "olsr", "dsdv", "dsr", "none"]
+MacMode = Literal["adhoc", "mesh"]
 MobilityModel = Literal["random-walk", "gauss-markov", "grid", "constant"]
 GridLayout = Literal["RowFirst", "ColumnFirst"]
 RwMode = Literal["Time", "Distance"]
@@ -56,22 +58,30 @@ class SimConfig(_CamelModel):
     log_components: str = ""
 
     # PHY
-    standard: Standard = "80211g"
-    data_rate: str = "ErpOfdmRate54Mbps"
-    tx_power_start: float = 20.0
-    tx_power_end: float = 20.0
+    # phy_model="spectrum" 启用 SpectrumWifiPhy + MultiModelSpectrumChannel；
+    # frequency_mhz/channel_width_mhz 主要驱动 Friis 路径损耗（590 MHz UHF + 20 MHz 带宽）。
+    # 真实射频参数虽然落在 802.11a 5 GHz 内部表里，但传播损耗按 frequency_mhz 计算，
+    # 4 km LOS 的距离预算与 UHF 物理一致。
+    standard: Standard = "80211a"
+    phy_model: PhyModel = "spectrum"
+    frequency_mhz: int = 590
+    channel_width_mhz: int = 20
+    range_target_m: float = 4000.0
+    data_rate: str = "OfdmRate6Mbps"
+    tx_power_start: float = 30.0
+    tx_power_end: float = 30.0
     tx_power_levels: int = 1
-    rx_sensitivity: float = -85.0
-    cca_threshold: float = -62.0
-    antenna_gain: float = 0.0
+    rx_sensitivity: float = -92.0
+    cca_threshold: float = -82.0
+    antenna_gain: float = 3.0
 
     # Propagation
     propagation_delay: PropagationDelay = "ConstantSpeed"
-    path_loss_model: PathLossModel = "LogDistance"
-    path_loss_exponent: float = 3.0
+    path_loss_model: PathLossModel = "FreeSpace"
+    path_loss_exponent: float = 2.0
     path_loss_ref_loss: float = 46.6777
     path_loss_ref_distance: float = 1.0
-    enable_fading: bool = True
+    enable_fading: bool = False
     fading_model: FadingModel = "Nakagami"
     nakagami_m0: float = 1.5
     nakagami_m1: float = 1.0
@@ -79,10 +89,13 @@ class SimConfig(_CamelModel):
     nakagami_d1: float = 50.0
     nakagami_d2: float = 100.0
 
-    # MAC
+    # MAC — mac_mode="mesh" 启用 802.11s + HWMP 实现 L2 多跳；
+    # 此时 TapBridge UseBridge 仍可用，整张 mesh 在容器视角下是一个 L2 广播域，
+    # 多跳转发由 ns-3 mesh 模块在底层完成，容器侧无需额外路由配置。
     ssid: str = "adhoc-30ns3"
     bssid: str = "00:00:00:00:AD:H0"
-    rate_control: RateControl = "Arf"
+    mac_mode: MacMode = "mesh"
+    rate_control: RateControl = "Constant"
     rts_cts_threshold: int = 2200
     fragmentation_threshold: int = 2200
     non_unicast_mode: bool = False
@@ -104,21 +117,21 @@ class SimConfig(_CamelModel):
     dsdv_periodic_update_interval: float = 15.0
     dsdv_settling_time: float = 6
 
-    # Mobility
+    # Mobility — 默认覆盖 5000 m × 5000 m 的活动范围，配合 4 km LOS 视距。
     mobility_model: MobilityModel = "random-walk"
     mobility_min_x: float = 0.0
-    mobility_max_x: float = 500.0
+    mobility_max_x: float = 5000.0
     mobility_min_y: float = 0.0
-    mobility_max_y: float = 500.0
+    mobility_max_y: float = 5000.0
     rw_min_speed: float = 0.5
     rw_max_speed: float = 3.0
-    rw_distance: float = 20.0
+    rw_distance: float = 200.0
     rw_mode: RwMode = "Time"
     rw_time: float = 1.0
-    grid_min_x: float = 10.0
-    grid_min_y: float = 10.0
-    grid_delta_x: float = 80.0
-    grid_delta_y: float = 80.0
+    grid_min_x: float = 100.0
+    grid_min_y: float = 100.0
+    grid_delta_x: float = 800.0
+    grid_delta_y: float = 800.0
     grid_width: int = 6
     grid_layout: GridLayout = "RowFirst"
     gm_alpha: float = 0.85
@@ -172,49 +185,53 @@ def _preset(**overrides: Any) -> SimConfig:
 
 
 PRESETS: dict[str, SimConfig] = {
+    # 默认预设 = 用户目标场景：SpectrumWifiPhy + 802.11s mesh 多跳，
+    # 中心频率 590 MHz（覆盖 500–680 MHz UHF 频段），4 km 视距，5 km × 5 km 活动区。
     "default": _preset(),
+
+    # 城区——视距受阻、路径衰减更陡、节点密集，频段维持 UHF。
     "urban": _preset(
         ssid="adhoc-urban",
-        dataRate="ErpOfdmRate24Mbps",
-        txPowerStart=18.0, txPowerEnd=18.0,
-        rxSensitivity=-82.0, ccaThreshold=-60.0,
-        pathLossExponent=4.0,
+        txPowerStart=27.0, txPowerEnd=27.0,
+        rxSensitivity=-90.0, ccaThreshold=-78.0,
+        pathLossModel="LogDistance", pathLossExponent=3.5,
+        enableFading=True,
         nakagamiM0=1.0, nakagamiM1=0.75, nakagamiM2=0.5,
-        nakagamiD1=30.0, nakagamiD2=60.0,
+        nakagamiD1=300.0, nakagamiD2=800.0,
         rateControl="Aarf",
         rtsCtsThreshold=500, fragmentationThreshold=1000,
-        aodvHelloInterval=0.5, aodvActiveRouteTimeout=2.0, aodvNetDiameter=20,
-        mobilityMaxX=300.0, mobilityMaxY=300.0,
-        rwMaxSpeed=2.0,
-        gridDeltaX=50.0, gridDeltaY=50.0,
+        mobilityMaxX=2000.0, mobilityMaxY=2000.0,
+        rwMaxSpeed=2.0, rwDistance=100.0,
+        gridDeltaX=300.0, gridDeltaY=300.0,
         pcapPrefix="manet-urban",
     ),
+
+    # 旷野——开阔视距、路径衰减接近自由空间、活动区更大。
     "rural": _preset(
         ssid="adhoc-rural",
-        standard="80211a", dataRate="OfdmRate54Mbps",
-        txPowerStart=23.0, txPowerEnd=23.0,
-        rxSensitivity=-90.0, ccaThreshold=-65.0,
-        pathLossModel="TwoRayGround", pathLossExponent=2.0,
-        nakagamiM0=3.0, nakagamiM1=2.0, nakagamiM2=1.5,
-        nakagamiD1=100.0, nakagamiD2=200.0,
+        txPowerStart=33.0, txPowerEnd=33.0,
+        rxSensitivity=-95.0, ccaThreshold=-85.0,
+        pathLossModel="FreeSpace",
+        pathLossExponent=2.0,
         rtsCtsThreshold=65535,
-        routingProtocol="olsr",
-        olsrHelloInterval=5.0, olsrTcInterval=10.0,
         mobilityModel="grid",
-        mobilityMaxX=1000.0, mobilityMaxY=1000.0,
-        gridMinX=0.0, gridMinY=0.0,
-        gridDeltaX=150.0, gridDeltaY=150.0,
+        mobilityMaxX=8000.0, mobilityMaxY=8000.0,
+        gridMinX=200.0, gridMinY=200.0,
+        gridDeltaX=1500.0, gridDeltaY=1500.0,
         pcapPrefix="manet-rural",
     ),
+
+    # 冒烟测试——5 节点 / 短时长 / 小活动区 / 关闭衰落 / 关闭 mesh 退回 ad-hoc。
     "debug": _preset(
         nNodes=5, simulationTime=60,
         ssid="adhoc-debug",
-        pathLossExponent=2.0,
-        enableFading=False,
+        macMode="adhoc",
         routingProtocol="none",
         mobilityModel="grid",
-        mobilityMaxX=250.0, mobilityMaxY=250.0,
+        mobilityMaxX=300.0, mobilityMaxY=300.0,
+        gridMinX=10.0, gridMinY=10.0,
         gridDeltaX=50.0, gridDeltaY=50.0, gridWidth=5,
+        rangeTargetM=200.0,
         ascii=True,
         pcapPrefix="manet-debug",
         enableMobilityTrace=True,
