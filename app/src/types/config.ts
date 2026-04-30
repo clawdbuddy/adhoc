@@ -1,5 +1,5 @@
 // ns-3 MANET 仿真配置类型定义
-// 参数与 manet-30nodes.cc 及后端 SimConfig 对齐
+// 与后端 controller/orchestrator/config.py:SimConfig 逐字段对齐
 
 export interface SimConfig {
   // --- General ---
@@ -11,6 +11,10 @@ export interface SimConfig {
 
   // --- PHY ---
   standard: string;
+  phyModel: string;
+  frequencyMhz: number;
+  channelWidthMhz: number;
+  rangeTargetM: number;
   dataRate: string;
   txPowerStart: number;
   txPowerEnd: number;
@@ -36,6 +40,7 @@ export interface SimConfig {
   // --- MAC ---
   ssid: string;
   bssid: string;
+  macMode: string;
   rateControl: string;
   rtsCtsThreshold: number;
   fragmentationThreshold: number;
@@ -138,116 +143,122 @@ export const DATA_RATES: Record<string, string[]> = {
   '80211ax-5GHz': ['HeMcs0', 'HeMcs1', 'HeMcs2', 'HeMcs3', 'HeMcs4', 'HeMcs5', 'HeMcs6', 'HeMcs7', 'HeMcs8', 'HeMcs9', 'HeMcs10', 'HeMcs11'],
 };
 
+export const PHY_MODELS = ['yans', 'spectrum'];
 export const PATH_LOSS_MODELS = ['LogDistance', 'FreeSpace', 'TwoRayGround', 'ThreeLogDistance', 'Cost231', 'Range'];
 export const FADING_MODELS = ['Nakagami', 'Jakes'];
 export const PROPAGATION_DELAYS = ['ConstantSpeed', 'Random'];
 export const RATE_CONTROLS = ['Arf', 'Aarf', 'Onoe', 'Constant', 'Minstrel'];
-export const MAC_TYPES = ['AdhocWifiMac'];
+export const MAC_MODES = ['adhoc', 'mesh'];
 export const ROUTING_PROTOCOLS = ['aodv', 'olsr', 'dsdv', 'dsr', 'none'];
 export const MOBILITY_MODELS = ['random-walk', 'gauss-markov', 'grid', 'constant'];
 export const GRID_LAYOUTS = ['RowFirst', 'ColumnFirst'];
 export const RW_MODES = ['Time', 'Distance'];
 
+// 预设与后端 controller/orchestrator/config.py:PRESETS 逐字段对齐
 export const PRESETS = {
   default: {
-    name: 'Default / Balanced',
-    description: 'Standard 802.11g AdHoc with AODV, LogDistance path loss, moderate fading',
+    name: 'Default / Mesh',
+    description: 'SpectrumWifiPhy + 802.11s mesh (HWMP), UHF 590 MHz, 4 km LOS, 5x5 km area',
     config: {
       nNodes: 30, simulationTime: 300, seed: 1, run: 1,
-      standard: '80211g', dataRate: 'ErpOfdmRate54Mbps',
-      txPowerStart: 20, txPowerEnd: 20, txPowerLevels: 1,
-      rxSensitivity: -85, ccaThreshold: -62, antennaGain: 0,
-      propagationDelay: 'ConstantSpeed', pathLossModel: 'LogDistance',
-      pathLossExponent: 3.0, pathLossRefLoss: 46.6777, pathLossRefDistance: 1.0,
-      enableFading: true, fadingModel: 'Nakagami',
+      standard: '80211a', phyModel: 'spectrum', frequencyMhz: 590, channelWidthMhz: 20, rangeTargetM: 4000,
+      dataRate: 'OfdmRate6Mbps',
+      txPowerStart: 30, txPowerEnd: 30, txPowerLevels: 1,
+      rxSensitivity: -92, ccaThreshold: -82, antennaGain: 3,
+      propagationDelay: 'ConstantSpeed', pathLossModel: 'FreeSpace',
+      pathLossExponent: 2.0, pathLossRefLoss: 46.6777, pathLossRefDistance: 1.0,
+      enableFading: false, fadingModel: 'Nakagami',
       nakagamiM0: 1.5, nakagamiM1: 1.0, nakagamiM2: 0.75, nakagamiD1: 50, nakagamiD2: 100,
       ssid: 'adhoc-30ns3', bssid: '00:00:00:00:AD:H0',
-      rateControl: 'Arf', rtsCtsThreshold: 2200, fragmentationThreshold: 2200,
+      macMode: 'mesh', rateControl: 'Constant', rtsCtsThreshold: 2200, fragmentationThreshold: 2200,
       nonUnicastMode: false, beaconInterval: 100, cwMin: 15, cwMax: 1023,
       routingProtocol: 'aodv', aodvHelloInterval: 1, aodvRreqRetries: 2,
       aodvActiveRouteTimeout: 3, aodvDeletePeriod: 5, aodvNetDiameter: 35, aodvEnableHello: true,
       olsrHelloInterval: 2, olsrTcInterval: 5, olsrWillingness: 7,
       dsdvPeriodicUpdateInterval: 15, dsdvSettlingTime: 6,
-      mobilityModel: 'random-walk', mobilityMinX: 0, mobilityMaxX: 500, mobilityMinY: 0, mobilityMaxY: 500,
-      rwMinSpeed: 0.5, rwMaxSpeed: 3, rwDistance: 20, rwMode: 'Time', rwTime: 1,
-      gridMinX: 10, gridMinY: 10, gridDeltaX: 80, gridDeltaY: 80, gridWidth: 6, gridLayout: 'RowFirst',
+      mobilityModel: 'random-walk', mobilityMinX: 0, mobilityMaxX: 5000, mobilityMinY: 0, mobilityMaxY: 5000,
+      rwMinSpeed: 0.5, rwMaxSpeed: 3, rwDistance: 200, rwMode: 'Time', rwTime: 1,
+      gridMinX: 100, gridMinY: 100, gridDeltaX: 800, gridDeltaY: 800, gridWidth: 6, gridLayout: 'RowFirst',
       gmAlpha: 0.85, pcap: true, ascii: false, flowMonitor: true,
       pcapPrefix: 'manet-30nodes-adhoc', enableMobilityTrace: false,
     } as SimConfig,
   },
   urban: {
     name: 'Urban Dense',
-    description: 'Dense urban: heavy path loss, strong fading, AODV fast hello, always RTS/CTS',
+    description: 'Dense urban: heavy path loss, strong fading, mesh with AARF, reduced range',
     config: {
       nNodes: 30, simulationTime: 300, seed: 1, run: 1,
-      standard: '80211g', dataRate: 'ErpOfdmRate24Mbps',
-      txPowerStart: 18, txPowerEnd: 18, txPowerLevels: 1,
-      rxSensitivity: -82, ccaThreshold: -60, antennaGain: 0,
+      standard: '80211a', phyModel: 'spectrum', frequencyMhz: 590, channelWidthMhz: 20, rangeTargetM: 4000,
+      dataRate: 'OfdmRate6Mbps',
+      txPowerStart: 27, txPowerEnd: 27, txPowerLevels: 1,
+      rxSensitivity: -90, ccaThreshold: -78, antennaGain: 3,
       propagationDelay: 'ConstantSpeed', pathLossModel: 'LogDistance',
-      pathLossExponent: 4.0, pathLossRefLoss: 46.6777, pathLossRefDistance: 1.0,
+      pathLossExponent: 3.5, pathLossRefLoss: 46.6777, pathLossRefDistance: 1.0,
       enableFading: true, fadingModel: 'Nakagami',
-      nakagamiM0: 1.0, nakagamiM1: 0.75, nakagamiM2: 0.5, nakagamiD1: 30, nakagamiD2: 60,
+      nakagamiM0: 1.0, nakagamiM1: 0.75, nakagamiM2: 0.5, nakagamiD1: 300, nakagamiD2: 800,
       ssid: 'adhoc-urban', bssid: '00:00:00:00:AD:H0',
-      rateControl: 'Aarf', rtsCtsThreshold: 500, fragmentationThreshold: 1000,
+      macMode: 'mesh', rateControl: 'Aarf', rtsCtsThreshold: 500, fragmentationThreshold: 1000,
       nonUnicastMode: false, beaconInterval: 100, cwMin: 15, cwMax: 1023,
-      routingProtocol: 'aodv', aodvHelloInterval: 0.5, aodvRreqRetries: 2,
-      aodvActiveRouteTimeout: 2, aodvDeletePeriod: 5, aodvNetDiameter: 20, aodvEnableHello: true,
+      routingProtocol: 'aodv', aodvHelloInterval: 1, aodvRreqRetries: 2,
+      aodvActiveRouteTimeout: 3, aodvDeletePeriod: 5, aodvNetDiameter: 35, aodvEnableHello: true,
       olsrHelloInterval: 2, olsrTcInterval: 5, olsrWillingness: 7,
       dsdvPeriodicUpdateInterval: 15, dsdvSettlingTime: 6,
-      mobilityModel: 'random-walk', mobilityMinX: 0, mobilityMaxX: 300, mobilityMinY: 0, mobilityMaxY: 300,
-      rwMinSpeed: 0.5, rwMaxSpeed: 2, rwDistance: 20, rwMode: 'Time', rwTime: 1,
-      gridMinX: 10, gridMinY: 10, gridDeltaX: 50, gridDeltaY: 50, gridWidth: 6, gridLayout: 'RowFirst',
+      mobilityModel: 'random-walk', mobilityMinX: 0, mobilityMaxX: 2000, mobilityMinY: 0, mobilityMaxY: 2000,
+      rwMinSpeed: 0.5, rwMaxSpeed: 2, rwDistance: 100, rwMode: 'Time', rwTime: 1,
+      gridMinX: 100, gridMinY: 100, gridDeltaX: 300, gridDeltaY: 300, gridWidth: 6, gridLayout: 'RowFirst',
       gmAlpha: 0.85, pcap: true, ascii: false, flowMonitor: true,
       pcapPrefix: 'manet-urban', enableMobilityTrace: false,
     } as SimConfig,
   },
   rural: {
     name: 'Rural / Open Field',
-    description: 'Open field: TwoRayGround, light fading, OLSR, disabled RTS/CTS, long range',
+    description: 'Open field: FreeSpace, large 8x8 km grid, high TX power, mesh',
     config: {
       nNodes: 30, simulationTime: 300, seed: 1, run: 1,
-      standard: '80211a', dataRate: 'OfdmRate54Mbps',
-      txPowerStart: 23, txPowerEnd: 23, txPowerLevels: 1,
-      rxSensitivity: -90, ccaThreshold: -65, antennaGain: 0,
-      propagationDelay: 'ConstantSpeed', pathLossModel: 'TwoRayGround',
+      standard: '80211a', phyModel: 'spectrum', frequencyMhz: 590, channelWidthMhz: 20, rangeTargetM: 4000,
+      dataRate: 'OfdmRate6Mbps',
+      txPowerStart: 33, txPowerEnd: 33, txPowerLevels: 1,
+      rxSensitivity: -95, ccaThreshold: -85, antennaGain: 3,
+      propagationDelay: 'ConstantSpeed', pathLossModel: 'FreeSpace',
       pathLossExponent: 2.0, pathLossRefLoss: 46.6777, pathLossRefDistance: 1.0,
-      enableFading: true, fadingModel: 'Nakagami',
-      nakagamiM0: 3.0, nakagamiM1: 2.0, nakagamiM2: 1.5, nakagamiD1: 100, nakagamiD2: 200,
+      enableFading: false, fadingModel: 'Nakagami',
+      nakagamiM0: 1.5, nakagamiM1: 1.0, nakagamiM2: 0.75, nakagamiD1: 50, nakagamiD2: 100,
       ssid: 'adhoc-rural', bssid: '00:00:00:00:AD:H0',
-      rateControl: 'Arf', rtsCtsThreshold: 65535, fragmentationThreshold: 2200,
+      macMode: 'mesh', rateControl: 'Constant', rtsCtsThreshold: 65535, fragmentationThreshold: 2200,
       nonUnicastMode: false, beaconInterval: 100, cwMin: 15, cwMax: 1023,
       routingProtocol: 'olsr', aodvHelloInterval: 1, aodvRreqRetries: 2,
       aodvActiveRouteTimeout: 3, aodvDeletePeriod: 5, aodvNetDiameter: 35, aodvEnableHello: true,
       olsrHelloInterval: 5, olsrTcInterval: 10, olsrWillingness: 7,
       dsdvPeriodicUpdateInterval: 15, dsdvSettlingTime: 6,
-      mobilityModel: 'grid', mobilityMinX: 0, mobilityMaxX: 1000, mobilityMinY: 0, mobilityMaxY: 1000,
-      rwMinSpeed: 0.5, rwMaxSpeed: 3, rwDistance: 20, rwMode: 'Time', rwTime: 1,
-      gridMinX: 0, gridMinY: 0, gridDeltaX: 150, gridDeltaY: 150, gridWidth: 6, gridLayout: 'RowFirst',
+      mobilityModel: 'grid', mobilityMinX: 0, mobilityMaxX: 8000, mobilityMinY: 0, mobilityMaxY: 8000,
+      rwMinSpeed: 0.5, rwMaxSpeed: 3, rwDistance: 200, rwMode: 'Time', rwTime: 1,
+      gridMinX: 200, gridMinY: 200, gridDeltaX: 1500, gridDeltaY: 1500, gridWidth: 6, gridLayout: 'RowFirst',
       gmAlpha: 0.85, pcap: true, ascii: false, flowMonitor: true,
       pcapPrefix: 'manet-rural', enableMobilityTrace: false,
     } as SimConfig,
   },
   debug: {
     name: 'Debug / Minimal',
-    description: '5 nodes, 60s, no fading, fixed grid, no routing, full tracing',
+    description: '5 nodes, 60s, ad-hoc mode, no routing, small grid, full tracing',
     config: {
       nNodes: 5, simulationTime: 60, seed: 1, run: 1,
-      standard: '80211g', dataRate: 'ErpOfdmRate54Mbps',
-      txPowerStart: 20, txPowerEnd: 20, txPowerLevels: 1,
-      rxSensitivity: -85, ccaThreshold: -62, antennaGain: 0,
-      propagationDelay: 'ConstantSpeed', pathLossModel: 'LogDistance',
+      standard: '80211a', phyModel: 'spectrum', frequencyMhz: 590, channelWidthMhz: 20, rangeTargetM: 200,
+      dataRate: 'OfdmRate6Mbps',
+      txPowerStart: 30, txPowerEnd: 30, txPowerLevels: 1,
+      rxSensitivity: -92, ccaThreshold: -82, antennaGain: 3,
+      propagationDelay: 'ConstantSpeed', pathLossModel: 'FreeSpace',
       pathLossExponent: 2.0, pathLossRefLoss: 46.6777, pathLossRefDistance: 1.0,
       enableFading: false, fadingModel: 'Nakagami',
       nakagamiM0: 1.5, nakagamiM1: 1.0, nakagamiM2: 0.75, nakagamiD1: 50, nakagamiD2: 100,
       ssid: 'adhoc-debug', bssid: '00:00:00:00:AD:H0',
-      rateControl: 'Arf', rtsCtsThreshold: 2200, fragmentationThreshold: 2200,
+      macMode: 'adhoc', rateControl: 'Constant', rtsCtsThreshold: 2200, fragmentationThreshold: 2200,
       nonUnicastMode: false, beaconInterval: 100, cwMin: 15, cwMax: 1023,
       routingProtocol: 'none', aodvHelloInterval: 1, aodvRreqRetries: 2,
       aodvActiveRouteTimeout: 3, aodvDeletePeriod: 5, aodvNetDiameter: 35, aodvEnableHello: true,
       olsrHelloInterval: 2, olsrTcInterval: 5, olsrWillingness: 7,
       dsdvPeriodicUpdateInterval: 15, dsdvSettlingTime: 6,
-      mobilityModel: 'grid', mobilityMinX: 0, mobilityMaxX: 250, mobilityMinY: 0, mobilityMaxY: 250,
-      rwMinSpeed: 0.5, rwMaxSpeed: 3, rwDistance: 20, rwMode: 'Time', rwTime: 1,
+      mobilityModel: 'grid', mobilityMinX: 0, mobilityMaxX: 300, mobilityMinY: 0, mobilityMaxY: 300,
+      rwMinSpeed: 0.5, rwMaxSpeed: 3, rwDistance: 200, rwMode: 'Time', rwTime: 1,
       gridMinX: 10, gridMinY: 10, gridDeltaX: 50, gridDeltaY: 50, gridWidth: 5, gridLayout: 'RowFirst',
       gmAlpha: 0.85, pcap: true, ascii: true, flowMonitor: true,
       pcapPrefix: 'manet-debug', enableMobilityTrace: true,

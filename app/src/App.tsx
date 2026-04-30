@@ -37,8 +37,8 @@ function App() {
               <Network className="h-5 w-5 text-primary-foreground" />
             </div>
             <div>
-              <h1 className="text-lg font-bold leading-tight">NS-3 AdHoc Manager</h1>
-              <p className="text-xs text-muted-foreground">802.11 AdHoc (IBSS) 30-Node Simulation Control Panel</p>
+              <h1 className="text-lg font-bold leading-tight">NS-3 MANET Manager</h1>
+              <p className="text-xs text-muted-foreground">802.11s Mesh / AdHoc Simulation Control Panel</p>
             </div>
           </div>
           <div className="flex-1" />

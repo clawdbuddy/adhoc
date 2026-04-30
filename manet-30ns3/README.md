@@ -1,22 +1,22 @@
-# NS-3 802.11 AdHoc 容器化 MANET 仿真系统
+# NS-3 802.11s Mesh / AdHoc 容器化 MANET 仿真系统
 
-**目标平台：x86_64 Ubuntu 20.04**
+**目标平台：x86_64 Ubuntu 22.04**
 
-纯 **802.11 AdHoc (IBSS)** 网络仿真。每个 MANET 节点是一个独立的 Docker 容器，所有节点间流量被强制经过 NS-3 的 AdHoc 信道模型。所有 PHY/MAC/路由/移动模型参数都可以通过 **REST 接口**或 **React Web 管理面板**自由配置。
+**802.11s Mesh (HWMP) / 802.11 AdHoc (IBSS)** 网络仿真。每个 MANET 节点是一个独立的 Docker 容器，所有节点间流量被强制经过 NS-3 的信道模型。PHY/MAC/路由/移动模型参数均可通过 **REST 接口**或 **React Web 管理面板**自由配置。
 
-> ⚠️ **架构升级说明**：本项目已从旧的"C++ scratch + shell 脚本"流水线迁移到 **Python 控制器（FastAPI + ns-3 Python 绑定）**。旧版的 `start-simulation.sh`、`setup-network.sh`、`cleanup.sh`、`web-manager-start.sh` 与 `ns3-code/manet-30nodes.cc` 仅作历史保留，运行时不再使用。详情见仓库根目录 `CLAUDE.md` 与 `/Users/binnary/.claude/plans/melodic-puzzling-pebble.md`。
+> ⚠️ **架构升级说明**：本项目已从旧的"C++ scratch + shell 脚本"流水线全面迁移到 **Python 控制器（FastAPI + ns-3 Python 绑定）**。节点容器入口也从 shell 脚本改为 Python（`node-entrypoint.py`）。详情见仓库根目录 `CLAUDE.md`。
 
 ## 核心架构：每节点一个独立容器
 
 ```
 +====================================================================+
-|                        宿主机 (x86_64 Ubuntu 20.04)                  |
+|                        宿主机 (x86_64 Ubuntu 22.04)                  |
 |                                                                      |
 |   +-------------+        br-ns3 (Linux 网桥)         +-------------+ |
 |   | Container-0 |<--veth0------+------+------tap-0--->|  NS-3       | |
-|   |  [节点 0]    |              |      |              |  AdHoc      | |
-|   |  eth0       |        [ 帧在此被桥接 ]              |  MAC/PHY    | |
-|   +-------------+              |      |              |  信道模型    | |
+|   |  [节点 0]    |              |      |              |  802.11s    | |
+|   |  eth0       |        [ 帧在此被桥接 ]              |  Mesh MAC   | |
+|   +-------------+              |      |              |  + PHY      | |
 |                                |      |              |             | |
 |   +-------------+              |      |              |  每帧由      | |
 |   | Container-1 |<--veth1------+      |              |  AdHoc MAC   | |
@@ -49,11 +49,12 @@ Container-0 用户应用
         → veth0（宿主侧，挂在 br-ns3 上）
            → br-ns3（Linux 桥）
               → tap-0（ns-3 TapBridge 接口）
-                 → [ns-3 AdHocWifiMac 处理帧]
+                 → [ns-3 802.11s Mesh (HWMP) / AdHocWifiMac 处理帧]
                     → [路径损耗模型：A 是否在 B 的覆盖范围内？]
                        → [衰落模型：是否因多径而丢包？]
                           → [信道模型决定：转发 或 丢弃]
-                             → tap-1（若帧通过 PHY）
+                             → tap-1（若帧通过 PHY，单跳直达）
+                             → tap-中间节点（若超出单跳，HWMP 自动多跳中继）
                                 → br-ns3
                                    → veth1
                                       → vethns1（位于 Container-1 netns）

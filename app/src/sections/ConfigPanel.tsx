@@ -9,8 +9,8 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 
 import {
-  STANDARDS, DATA_RATES, PATH_LOSS_MODELS, FADING_MODELS,
-  PROPAGATION_DELAYS, RATE_CONTROLS, ROUTING_PROTOCOLS,
+  STANDARDS, DATA_RATES, PHY_MODELS, PATH_LOSS_MODELS, FADING_MODELS,
+  PROPAGATION_DELAYS, RATE_CONTROLS, MAC_MODES, ROUTING_PROTOCOLS,
   MOBILITY_MODELS, GRID_LAYOUTS, RW_MODES, PRESETS,
 } from '@/types/config';
 import type { SimConfig } from '@/types/config';
@@ -162,6 +162,15 @@ export function ConfigPanel({
                   </Select>
                 </div>
                 <div className="space-y-2">
+                  <Label>PHY Model</Label>
+                  <Select value={config.phyModel} onValueChange={v => updateConfig('phyModel', v)}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      {PHY_MODELS.map(m => <SelectItem key={m} value={m}>{m}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
                   <Label>Data Rate</Label>
                   <Select value={config.dataRate} onValueChange={v => updateConfig('dataRate', v)}>
                     <SelectTrigger><SelectValue /></SelectTrigger>
@@ -169,6 +178,24 @@ export function ConfigPanel({
                       {(DATA_RATES[config.standard] || []).map(r => <SelectItem key={r} value={r}>{r}</SelectItem>)}
                     </SelectContent>
                   </Select>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <div className="space-y-2">
+                  <Label>Frequency (MHz)</Label>
+                  <Input type="number" min={100} max={6000} value={config.frequencyMhz}
+                    onChange={e => updateConfig('frequencyMhz', Number(e.target.value))} />
+                </div>
+                <div className="space-y-2">
+                  <Label>Channel Width (MHz)</Label>
+                  <Input type="number" min={5} max={160} value={config.channelWidthMhz}
+                    onChange={e => updateConfig('channelWidthMhz', Number(e.target.value))} />
+                </div>
+                <div className="space-y-2">
+                  <Label>Range Target (m)</Label>
+                  <Input type="number" min={10} max={50000} value={config.rangeTargetM}
+                    onChange={e => updateConfig('rangeTargetM', Number(e.target.value))} />
                 </div>
                 <div className="space-y-2">
                   <Label>Propagation Delay</Label>
@@ -285,9 +312,18 @@ export function ConfigPanel({
         {/* MAC Tab */}
         <TabsContent value="mac">
           <Card>
-            <CardHeader><CardTitle>MAC Layer (AdHoc IBSS)</CardTitle></CardHeader>
+            <CardHeader><CardTitle>MAC Layer (AdHoc / Mesh)</CardTitle></CardHeader>
             <CardContent className="space-y-6">
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <div className="space-y-2">
+                  <Label>MAC Mode</Label>
+                  <Select value={config.macMode} onValueChange={v => updateConfig('macMode', v)}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      {MAC_MODES.map(m => <SelectItem key={m} value={m}>{m}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
                 <div className="space-y-2">
                   <Label>SSID</Label>
                   <Input value={config.ssid} onChange={e => updateConfig('ssid', e.target.value)} />
