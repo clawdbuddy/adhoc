@@ -15,14 +15,14 @@ Kimi_Agent_MANET/
     │   └── api/                   # FastAPI 应用 + REST 路由 + /ws/telemetry
     ├── ns3-controller/          # 用于构建带 Python 绑定的 NS-3.45 的 Dockerfile
     │                            # 同时把 controller 包与 web 静态包打入镜像
-    ├── node/                    # Dockerfile.node + node-entrypoint.sh，MANET 节点容器
+    ├── node/                    # Dockerfile.node + node-entrypoint.py，MANET 节点容器（Python 入口）
     ├── web-manager/             # 预构建的静态包（由 `app/` 产出），由 FastAPI 直接托管
     └── ns3-code/                # 旧版 C++ scratch 程序（仅作参考与回归对比保留）
 ```
 
 `app/` 是管理面板的**源码**。`manet-30ns3/web-manager/` 存放该 UI 的**预构建**静态包；FastAPI 把它挂到 `/`，因此同一个 `:8000` 源同时提供 API 与 SPA。修改 UI 行为时：先改 `app/`，执行 `npm run build`，然后把 `app/dist/*` 复制到 `manet-30ns3/web-manager/`，再重新构建 controller 镜像。
 
-旧版 C++ 流水线（`ns3-code/manet-30nodes.cc` + `setup-network.sh` + `start-simulation.sh` + `web-manager-start.sh`）已被 Python 控制器**取代**。.cc 文件与 shell 脚本仍保留在磁盘上仅作历史参考，运行时实际跑的是 `controller/`。
+旧版 C++ 流水线（`ns3-code/manet-30nodes.cc` + `setup-network.sh` + `start-simulation.sh` + `web-manager-start.sh`）已被 Python 控制器**取代**并**已删除**。节点容器入口也从 shell 脚本（`node-entrypoint.sh`）全面迁移到 Python（`node-entrypoint.py`）。运行时唯一权威实现是 `controller/` + `node-entrypoint.py`。
 
 ## 常用命令
 
@@ -195,5 +195,56 @@ ip link | grep -E 'br-ns3|tap-|veth' || echo "clean"   # 期望输出 "clean"
 - 仓库根目录**不是** git 仓库。`manet-30ns3.tar.gz` 是仿真系统的一个打包（很可能是规范分发产物）。请把 `manet-30ns3/` 当作工作副本对待。
 - `app/src/components/ui/` 由 shadcn 生成，**不要**手工修改原子组件，定制时优先在 `src/sections/` 中通过组合方式实现。
 - `manet-30ns3/skills/webapp-building/` 是用于初始化 `app/` 的 skill 脚手架，仅供参考，不属于运行时。
-- `manet-30ns3/ns3-code/manet-30nodes.cc`、`setup-network.sh`、`start-simulation.sh`、`cleanup.sh`、`web-manager-start.sh` 都是**遗留代码**——保留在树中只为参考，运行时不再使用。Python 控制器（`controller/`）才是权威实现。
+## 已知问题与改进计划
+
+### 1. 前端类型与后端预设不同步（高优先级）
+
+`app/src/types/config.ts` 中的 `PRESETS` 和 `SimConfig` 字段仍是旧版 ad-hoc 参数（如 `standard='80211g'`、缺少 `mac_mode` / `phy_model` / `frequency_mhz` / `range_target_m` 等），与后端 `controller/orchestrator/config.py` 已升级的 mesh + SpectrumWifiPhy + 590 MHz 参数不一致。
+
+**解决步骤：**
+1. 在 `SimConfig` 接口中新增缺失字段：`phyModel`、`macMode`、`frequencyMhz`、`channelWidthMhz`、`rangeTargetM`。
+2. 更新 4 个 `PRESETS` 的内容，与后端 `PRESETS` 逐字段对齐。
+3. 在 `ConfigPanel.tsx` 中新增对应的 UI 控件（PHY 模型切换、MAC 模式切换、频率输入）。
+4. 更新 `App.tsx` Header 中的副标题（当前仍写 "802.11 AdHoc (IBSS)"）。
+
+### 2. 测试框架缺失（中优先级）
+
+前后端均未配置测试框架。仅有的静态检查是 `eslint` 与 `tsc -b`。
+
+**解决步骤：**
+1. 后端：引入 `pytest`，为 `config.py` 的 `load_config` / `parse_conf_file` / `PRESETS` 编写单元测试。
+2. 后端：为 `netns.py` 的纯逻辑函数（如 `_normalize_keys`）编写单元测试；网络操作部分需要集成测试（在 Linux 宿主机上运行）。
+3. 前端：引入 `vitest` + `@testing-library/react`，为核心 hook（`useSimConfig` 的导入/导出逻辑）编写单元测试。
+
+### 3. 前端类型需手工与后端对齐（中优先级）
+
+`app/src/types/config.ts` 与 `controller/orchestrator/config.py` 之间没有自动生成机制。新增字段时需要两边手工修改。
+
+**解决步骤：**
+1. 短期：维护一份 CHECKLIST，每次新增字段时两边同步修改。
+2. 长期：由后端通过 FastAPI 的 `/openapi.json` 生成 TS 类型（使用 `openapi-typescript`），或引入 `pydantic-to-typescript` 工具链。
+
+### 4. docker-compose v1 与 Docker 28 兼容性（低优先级，环境相关）
+
+当前 Linux 开发环境的 `docker-compose` v1.29.2 与 Docker Engine 28.x 不兼容（`Error while fetching server API version: Not supported URL scheme http+docker`）。
+
+**解决步骤：**
+1. 使用 `docker build` 直接构建（已验证可用）。
+2. 或安装 `docker-compose-plugin`（v2）替代 v1。
+3. CI 流水线（GitHub Actions）使用 `docker/build-push-action`，不受此影响。
+
+### 5. README 架构图过时（低优先级）
+
+`manet-30ns3/README.md` 中的 ASCII 拓扑图仍标注 "AdHoc"，且说明文字基于旧版 C++ 实现。
+
+**解决步骤：**
+1. 更新 ASCII 图，标注 "802.11s Mesh (HWMP)" 而非 "AdHoc"。
+2. 更新数据流说明，增加 mesh 多跳路径的描述。
+3. 删除对旧版 shell 脚本的引用说明。
+
+## 工作笔记
+
+- 仓库根目录**不是** git 仓库。`manet-30ns3.tar.gz` 是仿真系统的一个打包（很可能是规范分发产物）。请把 `manet-30ns3/` 当作工作副本对待。
+- `app/src/components/ui/` 由 shadcn 生成，**不要**手工修改原子组件，定制时优先在 `src/sections/` 中通过组合方式实现。
+- `manet-30ns3/skills/webapp-building/` 是用于初始化 `app/` 的 skill 脚手架，仅供参考，不属于运行时。
 - 持久化的设计文档位于 `/Users/binnary/.claude/plans/melodic-puzzling-pebble.md`，其中 §3 的需求溯源表（R1–R8）可用于事后审计。

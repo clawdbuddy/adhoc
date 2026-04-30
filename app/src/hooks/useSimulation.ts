@@ -1,9 +1,8 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import type { NodeStatus, FlowStats, SimulationStatus, SimConfig } from '@/types/config';
 
-// API + WS base URLs. In production the FastAPI controller serves both this
-// page and the API at the same origin. In dev (vite at :3000) the proxy in
-// vite.config.ts forwards /api and /ws to localhost:8000.
+// API + WS 基础 URL。生产环境中 FastAPI 控制器与前端页面同源提供；
+// 开发模式下（vite 在 :3000）vite.config.ts 中的代理将 /api 和 /ws 转发到 localhost:8000。
 const API_BASE = '';
 
 function wsUrl(path: string): string {

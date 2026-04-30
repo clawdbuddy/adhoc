@@ -1,9 +1,9 @@
-# MANET AdHoc Node Container (linux/amd64 only)
+# MANET 节点容器 Dockerfile（仅 linux/amd64）
 #
-# Supports three USER_APP_MODE values via node-entrypoint.sh:
-#   bind  - bind-mount /opt/userapp from host; entrypoint runs ${USER_APP_CMD:-/opt/userapp/run.sh}
-#   image - this image is the base; user supplies a derived image with /opt/userapp/run.sh baked in
-#   exec  - container starts idle (with optional sshd); backend pushes binaries via docker exec / ssh
+# 支持三种 USER_APP_MODE（通过 node-entrypoint.py 实现）：
+#   bind  - 宿主 bind-mount /opt/userapp；入口运行 ${USER_APP_CMD:-/opt/userapp/run.sh}
+#   image - 容器基于派生镜像启动，镜像内已烘焙 /opt/userapp/run.sh
+#   exec  - 容器保持空闲（可选 sshd）；后端通过 docker exec / ssh 推送二进制
 FROM ubuntu:20.04
 
 ENV DEBIAN_FRONTEND=noninteractive
@@ -19,11 +19,11 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/* \
     && mkdir -p /run/sshd /opt/userapp
 
-COPY node-entrypoint.sh /node-entrypoint.sh
-RUN chmod +x /node-entrypoint.sh
+COPY node-entrypoint.py /node-entrypoint.py
+RUN chmod +x /node-entrypoint.py
 
-# Default user-app mode: keep container alive idle, allow exec / ssh.
+# 默认用户软件模式：保持空闲，允许 exec / ssh
 ENV USER_APP_MODE=exec
 ENV NODE_ROLE=client
 
-ENTRYPOINT ["/node-entrypoint.sh"]
+ENTRYPOINT ["python3", "/node-entrypoint.py"]

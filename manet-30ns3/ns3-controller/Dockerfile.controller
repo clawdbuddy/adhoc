@@ -34,9 +34,10 @@ ENV CCACHE_DIR=/ccache
 RUN mkdir -p /ccache && ccache --max-size=10G
 
 # --- 3. Compile flags (linux/amd64 only) ---
-RUN echo "Building for linux/amd64 with -O3 -march=x86-64-v2" && \
-    echo 'CXXFLAGS="-O3 -march=x86-64-v2 -DNDEBUG"' >  /etc/ns3-build-env && \
-    echo 'CFLAGS="-O3 -march=x86-64-v2 -DNDEBUG"'  >> /etc/ns3-build-env
+# GCC 9 (Ubuntu 20.04) 不支持 -march=x86-64-v2，使用 -march=x86-64
+RUN echo "Building for linux/amd64 with -O3 -march=x86-64" && \
+    echo 'CXXFLAGS="-O3 -march=x86-64 -DNDEBUG"' >  /etc/ns3-build-env && \
+    echo 'CFLAGS="-O3 -march=x86-64 -DNDEBUG"'  >> /etc/ns3-build-env
 
 # --- 4. Fetch NS-3.45 ---
 WORKDIR /opt/ns3
@@ -50,7 +51,7 @@ RUN wget -q https://www.nsnam.org/releases/ns-${NS3_VERSION}.tar.bz2 \
 # Modules: core+network+internet+wifi+mobility+tap-bridge+
 #          aodv+olsr+dsdv+dsr+mesh+flow-monitor+propagation+spectrum
 WORKDIR /opt/ns3/ns-3
-RUN if [ -f /etc/ns3-build-env ]; then export $(cat /etc/ns3-build-env | xargs); fi && \
+RUN if [ -f /etc/ns3-build-env ]; then set -a && . /etc/ns3-build-env && set +a; fi && \
     ./ns3 configure \
     --build-profile=optimized \
     --enable-examples --enable-tests \

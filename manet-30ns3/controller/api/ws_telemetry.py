@@ -1,4 +1,7 @@
-"""WS /ws/telemetry — 1 Hz JSON frames matching the React UI's NodeStatus/FlowStats."""
+"""WebSocket 遥测路由：GET /ws/telemetry — 1 Hz JSON 帧。
+
+帧格式与 React 前端的 NodeStatus / FlowStats 类型对齐。
+"""
 from __future__ import annotations
 
 import asyncio
@@ -15,10 +18,11 @@ router = APIRouter()
 
 @router.websocket("/ws/telemetry")
 async def telemetry_ws(ws: WebSocket) -> None:
+    """向所有连接的 WebSocket 客户端广播 1 Hz 遥测帧。"""
     await ws.accept()
     sess = get_session()
     if not sess.telemetry:
-        # Send a single empty frame and close — UI can reconnect once a sim starts.
+        # 仿真未运行：发送一帧空数据后关闭，UI 可在仿真启动后自动重连
         await ws.send_json({"running": False, "nodes": [], "flows": [], "t": 0.0})
         await ws.close()
         return
@@ -31,7 +35,7 @@ async def telemetry_ws(ws: WebSocket) -> None:
     except WebSocketDisconnect:
         pass
     except Exception:  # noqa: BLE001
-        log.exception("ws send failed")
+        log.exception("WebSocket 发送失败")
     finally:
         if sess.telemetry:
             sess.telemetry.unsubscribe(queue)

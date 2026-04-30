@@ -1,7 +1,7 @@
-"""Telemetry: bundles SimRunner + DockerMgr snapshots into wire-format frames.
+"""遥测：将 SimRunner + DockerMgr 快照打包为线格式帧。
 
-Frame schema (camelCase) matches `NodeStatus`/`FlowStats` in
-app/src/types/config.ts so the React UI types are unchanged.
+帧格式（camelCase）与 app/src/types/config.ts 中的 NodeStatus / FlowStats 对齐，
+因此 React 前端类型无需改动。
 """
 from __future__ import annotations
 
@@ -18,7 +18,7 @@ log = logging.getLogger(__name__)
 
 
 def _node_frame(spec: NodeSpec, sim_node, online: bool) -> dict[str, Any]:
-    """Compose a single node frame in wire format (matches `NodeStatus` TS interface)."""
+    """组装单个节点帧（线格式，与 NodeStatus TS 接口匹配）。"""
     return {
         "id": spec.id,
         "ip": spec.ip,
@@ -34,7 +34,7 @@ def _node_frame(spec: NodeSpec, sim_node, online: bool) -> dict[str, Any]:
 
 
 def _flow_frame(flow) -> dict[str, Any]:
-    """Compose a single flow frame in wire format (matches `FlowStats` TS interface)."""
+    """组装单个流量帧（线格式，与 FlowStats TS 接口匹配）。"""
     return {
         "flowId": int(flow.flow_id),
         "source": str(flow.source),
@@ -48,7 +48,7 @@ def _flow_frame(flow) -> dict[str, Any]:
 
 
 class Telemetry:
-    """Aggregates state into JSON-serializable frames; broadcasts to WS subscribers."""
+    """聚合状态为 JSON 可序列化帧；向 WebSocket 订阅者广播。"""
 
     def __init__(self, sim: SimRunner, docker: DockerMgr, specs: list[NodeSpec]):
         self.sim = sim
@@ -58,17 +58,20 @@ class Telemetry:
         self._task: asyncio.Task[None] | None = None
         self._stop = asyncio.Event()
 
-    # ----------------------------------------------------- subscriber API
+    # ----------------------------------------------------- 订阅者 API
     def subscribe(self) -> asyncio.Queue[dict[str, Any]]:
+        """订阅遥测帧；返回一个 asyncio.Queue。"""
         q: asyncio.Queue[dict[str, Any]] = asyncio.Queue(maxsize=16)
         self._subscribers.add(q)
         return q
 
     def unsubscribe(self, q: asyncio.Queue[dict[str, Any]]) -> None:
+        """取消订阅。"""
         self._subscribers.discard(q)
 
-    # ----------------------------------------------------- snapshots (REST)
+    # ----------------------------------------------------- 快照（REST）
     def snapshot(self) -> dict[str, Any]:
+        """生成当前完整快照（供 REST 和 WebSocket 使用）。"""
         sim_nodes = {n.id: n for n in self.sim.snapshot_nodes()}
         sim_flows = self.sim.snapshot_flows()
         nodes_out = []
@@ -83,14 +86,16 @@ class Telemetry:
             "ts": time.time(),
         }
 
-    # ----------------------------------------------------- pump (WebSocket)
+    # ----------------------------------------------------- 泵（WebSocket）
     async def start(self, period: float = 1.0) -> None:
+        """启动周期性广播任务。"""
         if self._task is not None:
             return
         self._stop.clear()
         self._task = asyncio.create_task(self._pump(period), name="telemetry-pump")
 
     async def stop(self) -> None:
+        """停止广播任务。"""
         self._stop.set()
         if self._task is not None:
             self._task.cancel()
@@ -104,7 +109,7 @@ class Telemetry:
         try:
             while not self._stop.is_set():
                 frame = self.snapshot()
-                # Drop oldest if subscriber is slow.
+                # 如果订阅者处理慢，丢弃最旧的帧
                 for q in list(self._subscribers):
                     if q.full():
                         try:
@@ -119,4 +124,4 @@ class Telemetry:
         except asyncio.CancelledError:
             raise
         except Exception:  # noqa: BLE001
-            log.exception("telemetry pump crashed")
+            log.exception("遥测泵崩溃")

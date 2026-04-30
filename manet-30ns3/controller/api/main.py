@@ -1,11 +1,10 @@
-"""FastAPI application entrypoint.
+"""FastAPI 应用入口。
 
-Start with:
+启动方式：
     uvicorn controller.api.main:app --host 0.0.0.0 --port 8000
 
-Inside the controller container, this is launched by /entrypoint.sh.
-The app must run with PYTHONPATH=/opt/ns3/ns-3/build/bindings/python so that
-`from ns import ns` succeeds.
+在控制器容器内由 /entrypoint.sh 启动。
+需要 PYTHONPATH=/opt/ns3/ns-3/build/bindings/python 以保证 `from ns import ns` 可正常导入。
 """
 from __future__ import annotations
 
@@ -26,23 +25,23 @@ logging.basicConfig(level=os.environ.get("LOG_LEVEL", "INFO"))
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    log.info("MANET controller starting up")
+    log.info("MANET 控制器启动")
     try:
         yield
     finally:
-        log.info("MANET controller shutting down")
+        log.info("MANET 控制器关闭")
         sess = get_session()
         if sess.running:
             try:
                 await sess.stop()
             except Exception:  # noqa: BLE001
-                log.exception("error stopping session during shutdown")
+                log.exception("关闭期间停止会话出错")
 
 
-app = FastAPI(title="MANET ns-3 Controller", version="0.1.0", lifespan=lifespan)
+app = FastAPI(title="MANET ns-3 控制器", version="0.1.0", lifespan=lifespan)
 
-# In production, the React build is served by the same server, so CORS is unused.
-# In dev, the Vite dev server proxies /api and /ws here.
+# 生产环境中 React 构建产物由同一服务器托管，因此 CORS 实际未使用。
+# 开发模式下 Vite 开发服务器将 /api 和 /ws 代理到本服务。
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -62,11 +61,10 @@ async def health() -> dict[str, bool]:
     return {"ok": True}
 
 
-# Serve the built React UI (production), if present. The controller image
-# expects /app/dist to be populated at build time.
+# 托管构建后的 React UI（生产环境）。控制器镜像要求在构建时填充 /app/dist。
 WEB_DIR = os.environ.get("MANET_WEB_DIR", "/app/dist")
 if os.path.isdir(WEB_DIR):
     app.mount("/", StaticFiles(directory=WEB_DIR, html=True), name="web")
-    log.info("serving React UI from %s", WEB_DIR)
+    log.info("从 %s 提供 React UI", WEB_DIR)
 else:
-    log.info("no UI dir at %s; running in API-only mode", WEB_DIR)
+    log.info("%s 处无 UI 目录；以纯 API 模式运行", WEB_DIR)

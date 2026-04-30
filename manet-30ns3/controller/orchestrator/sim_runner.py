@@ -1,16 +1,14 @@
-"""ns-3 Python simulation runner — port of scratch/manet-30nodes.cc.
+"""ns-3 Python 仿真运行器 —— scratch/manet-30nodes.cc 的移植版。
 
-Threading model:
-    The ns-3 simulator is started in a dedicated daemon thread; FastAPI runs in
-    the main asyncio loop. The simulator thread owns the ns-3 globals.
+线程模型：
+    ns-3 仿真器在独立守护线程中启动；FastAPI 在主 asyncio 循环中运行。
+    仿真线程拥有 ns-3 全局状态。
 
-TapBridge mode (UseBridge): each ns-3 WifiNetDevice is L2-bridged to a host
-TAP (tap-{i}). User traffic from the corresponding container traverses the
-ns-3 AdHoc PHY/MAC channel model. ns-3 does NOT IP-route user payloads in
-UseBridge mode — the L3 `routingProtocol` setting is installed on ns-3's
-stack but only applies to packets ns-3 itself generates (control plane).
-This matches the existing C++ implementation; multi-hop user-payload routing
-must be done by software inside the containers.
+TapBridge 模式（UseBridge）：每个 ns-3 WifiNetDevice 在 L2 上与宿主 TAP（tap-{i}）桥接。
+对应容器的用户流量经过 ns-3 的 AdHoc/Mesh PHY/MAC 信道模型。
+在 UseBridge 模式下，ns-3 不对用户载荷做 IP 路由 —— L3 的 `routingProtocol` 设置
+仅安装在 ns-3 协议栈上，且只作用于 ns-3 自身生成的报文（控制面）。
+这与旧版 C++ 实现一致；多跳用户载荷路由必须由容器内的软件处理。
 """
 from __future__ import annotations
 
@@ -26,14 +24,14 @@ log = logging.getLogger(__name__)
 
 
 def _import_ns():
-    """Lazy-import ns-3 bindings; defer ImportError until the sim actually starts."""
-    from ns import ns  # noqa: WPS433 — runtime guard
+    """惰性导入 ns-3 绑定；将 ImportError 推迟到仿真真正启动时。"""
+    from ns import ns  # noqa: WPS433 — 运行时守卫
     return ns
 
 
 @dataclass
 class NodeRuntime:
-    """Live snapshot of one ns-3 node."""
+    """单个 ns-3 节点的实时快照。"""
     id: int
     x: float = 0.0
     y: float = 0.0
@@ -44,6 +42,7 @@ class NodeRuntime:
 
 @dataclass
 class FlowRuntime:
+    """单条流量的实时快照。"""
     flow_id: int
     source: str
     destination: str
@@ -55,7 +54,7 @@ class FlowRuntime:
 
 
 class SimRunner:
-    """Encapsulates one ns-3 simulation lifecycle."""
+    """封装一次 ns-3 仿真生命周期。"""
 
     def __init__(self, config: SimConfig):
         self.config = config
@@ -537,8 +536,7 @@ class SimRunner:
 
     # ------------------------------------------------- in-simulator periodic
     def _schedule_periodic(self, ns: Any, nodes: Any, period_s: float) -> None:
-        """Schedule a recurring 1 Hz callback inside the simulator that
-        snapshots positions and FlowMonitor counters into the runtime state."""
+        """在仿真器内调度周期性 1 Hz 回调，将位置和 FlowMonitor 计数器快照写入运行时状态。"""
         runner = self
 
         def _tick():

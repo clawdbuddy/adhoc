@@ -1,5 +1,5 @@
-// NS-3 AdHoc Simulation Configuration Types
-// All parameters from manet-30nodes.cc
+// ns-3 MANET 仿真配置类型定义
+// 参数与 manet-30nodes.cc 及后端 SimConfig 对齐
 
 export interface SimConfig {
   // --- General ---

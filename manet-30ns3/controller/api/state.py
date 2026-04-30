@@ -1,8 +1,8 @@
-"""Mutable session state shared by API routes.
+"""可变会话状态，由 API 路由共享。
 
-A single Session lives in `app.state.session`. /api/sim/start mutates it.
-We keep this small and explicit (no DI framework) — exactly one simulator
-runs at a time on the host.
+单个 Session 实例保存在 `app.state.session` 中。
+/api/sim/start 会修改它。
+保持小而显式（不使用 DI 框架）——同一时刻宿主机上只能运行一个仿真器。
 """
 from __future__ import annotations
 
@@ -27,10 +27,10 @@ log = logging.getLogger(__name__)
 
 
 def default_node_specs(config: SimConfig) -> list[NodeSpec]:
-    """Generate one spec per node when the caller didn't supply them.
+    """当调用者未提供节点规格时，按节点数自动生成。
 
-    Matches start-simulation.sh role assignment: node-0 = server, node-15 = gateway,
-    rest = client. IPs start at 192.168.100.10.
+    与 start-simulation.sh 的角色分配一致：node-0 = server，node-15 = gateway，
+    其余 = client。IP 从 192.168.100.10 开始。
     """
     specs: list[NodeSpec] = []
     for i in range(config.n_nodes):
@@ -46,7 +46,7 @@ def default_node_specs(config: SimConfig) -> list[NodeSpec]:
 
 @dataclass
 class Session:
-    """Process-wide singleton of the current simulation session."""
+    """当前仿真会话的进程级单例。"""
 
     config: SimConfig = field(default_factory=SimConfig)
     sim: Optional[SimRunner] = None
@@ -55,7 +55,7 @@ class Session:
     specs: list[NodeSpec] = field(default_factory=list)
     _lock: threading.Lock = field(default_factory=threading.Lock)
 
-    # ---------------------------------------------------------- lifecycle
+    # ---------------------------------------------------------- 生命周期
     async def start(
         self,
         *,
@@ -66,9 +66,9 @@ class Session:
     ) -> None:
         with self._lock:
             if self.sim and self.sim.running:
-                raise RuntimeError("simulator already running")
+                raise RuntimeError("仿真器已在运行")
 
-        # Resolve config: explicit > preset > overrides > current
+        # 解析配置：显式配置 > 预设 > 覆盖值 > 当前配置
         if config is not None:
             cfg = config
         elif preset is not None:
@@ -80,13 +80,12 @@ class Session:
 
         specs = nodes if nodes is not None else default_node_specs(cfg)
 
-        log.info("starting sim (n=%d preset=%s)", cfg.n_nodes, preset)
+        log.info("启动仿真 (n=%d preset=%s)", cfg.n_nodes, preset)
 
-        # 1. Bridge
+        # 1. 创建网桥
         ensure_bridge()
 
-        # 2. Containers (each call also creates veth pair + tap and moves
-        #    veth peer into the netns).
+        # 2. 启动容器（每次调用同时创建 veth 对 + tap，并将 veth 对端移入 netns）
         docker_mgr = DockerMgr()
         try:
             docker_mgr.start_all(specs, cfg)
@@ -94,7 +93,7 @@ class Session:
             docker_mgr.stop_all()
             raise
 
-        # 3. ns-3 simulator (drives all the TAPs created in step 2)
+        # 3. 启动 ns-3 仿真器（驱动第 2 步创建的所有 TAP）
         sim = SimRunner(cfg)
         try:
             sim.start()
@@ -103,7 +102,7 @@ class Session:
             teardown(cfg.n_nodes)
             raise
 
-        # 4. Telemetry pump
+        # 4. 启动遥测泵
         tele = Telemetry(sim, docker_mgr, specs)
         await tele.start(period=1.0)
 
@@ -128,13 +127,13 @@ class Session:
             docker_mgr.stop_all()
         teardown(len(specs))
 
-    # ---------------------------------------------------------- accessors
+    # ---------------------------------------------------------- 访问器
     @property
     def running(self) -> bool:
         return self.sim is not None and self.sim.running
 
 
-# ----- singleton accessor used by routers -----------------------------------
+# ----- 路由使用的单例访问函数 -----------------------------------
 _session = Session()
 
 
