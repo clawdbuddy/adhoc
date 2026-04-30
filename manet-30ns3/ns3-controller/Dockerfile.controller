@@ -1,5 +1,5 @@
 # NS-3 MANET 控制器 Dockerfile（linux/amd64）
-# 采用 Ubuntu 22.04 + pip install ns3（预编译 Python 绑定）
+# 采用 Ubuntu 22.04 + 源码编译 NS-3.45（GCC 11 原生支持）
 # apt 源：中科大 mirrors.ustc.edu.cn
 # pip 源：腾讯 mirrors.cloud.tencent.com
 
@@ -12,43 +12,70 @@ ENV TZ=UTC
 RUN sed -i 's/archive.ubuntu.com/mirrors.ustc.edu.cn/g' /etc/apt/sources.list \
     && sed -i 's/security.ubuntu.com/mirrors.ustc.edu.cn/g' /etc/apt/sources.list
 
-# --- 1. 系统运行时依赖 ---
-# ns-3 pip 包包含预编译的 .so，但仍需要系统库（libboost、libpcap、libgsl 等）才能加载。
+# --- 1. 构建依赖 ---
 RUN apt-get update && apt-get install -y \
-    python3 python3-pip \
-    iproute2 net-tools iputils-ping bridge-utils \
-    tcpdump iw wireless-tools socat nmap \
-    libboost-all-dev libgsl-dev libpcap-dev \
-    libsqlite3-dev sqlite3 libxml2-dev \
-    vim htop curl wget \
+    build-essential g++ gcc make cmake ninja-build pkg-config \
+    python3 python3-dev python3-pip python3-setuptools python3-wheel \
+    git wget curl tar bzip2 xz-utils \
+    libboost-all-dev libgsl-dev \
+    libsqlite3-dev sqlite3 libxml2-dev libgtk-3-dev libpcap-dev \
+    ccache vim htop net-tools iputils-ping bridge-utils \
+    iproute2 tcpdump iw wireless-tools socat nmap \
     && rm -rf /var/lib/apt/lists/*
 
 # --- 2. 替换 pip 源为腾讯镜像 ---
 RUN pip3 config set global.index-url https://mirrors.cloud.tencent.com/pypi/simple \
     && pip3 config set global.trusted-host mirrors.cloud.tencent.com
 
-# --- 3. Python 依赖 ---
-# ns-3：通过 pip 安装预编译包（含 mesh / spectrum / tap-bridge / aodv / olsr / dsdv / dsr）
-# 控制器运行时：FastAPI + Docker SDK + pyroute2
+# --- 3. Python 运行时依赖 ---
 RUN python3 -m pip install --no-cache-dir --upgrade pip setuptools wheel \
-    && python3 -m pip install --no-cache-dir ns3 \
+    && python3 -m pip install --no-cache-dir pybind11 \
     && python3 -m pip install --no-cache-dir \
         fastapi==0.110.* "uvicorn[standard]"==0.29.* \
         pydantic==2.* pydantic-settings==2.* \
         docker==7.* pyroute2==0.7.* \
         websockets==12.* httpx==0.27.*
 
-# --- 4. 验证 ns-3 Python 绑定 ---
-RUN python3 -c "from ns import ns; \
-    _ = ns.core.Simulator; \
-    _ = ns.wifi.WifiHelper; \
-    _ = ns.tap_bridge.TapBridgeHelper; \
-    _ = ns.mesh.MeshHelper; \
-    _ = ns.spectrum.MultiModelSpectrumChannel; \
-    print('ns-3 python bindings OK (版本:', ns.core.NS3_VERSION, ', 含 mesh + spectrum)')"
+# --- 4. ccache 加速 ---
+ENV PATH="/usr/lib/ccache:$PATH"
+ENV CCACHE_DIR=/ccache
+RUN mkdir -p /ccache && ccache --max-size=10G
 
-# --- 5. 控制器代码 + UI 静态资源 ---
-# 构建上下文必须是 manet-30ns3/（项目根目录）
+# --- 5. 编译标志（Ubuntu 22.04 GCC 11 支持 x86-64-v2） ---
+RUN echo "Building for linux/amd64 with -O3 -march=x86-64-v2" && \
+    echo 'CXXFLAGS="-O3 -march=x86-64-v2 -DNDEBUG"' >  /etc/ns3-build-env && \
+    echo 'CFLAGS="-O3 -march=x86-64-v2 -DNDEBUG"'  >> /etc/ns3-build-env
+
+# --- 6. 下载 NS-3.45 ---
+WORKDIR /opt/ns3
+ARG NS3_VERSION=3.45
+RUN wget -q https://www.nsnam.org/releases/ns-${NS3_VERSION}.tar.bz2 \
+    && tar xjf ns-${NS3_VERSION}.tar.bz2 \
+    && rm ns-${NS3_VERSION}.tar.bz2 \
+    && ln -s ns-${NS3_VERSION} ns-3
+
+# --- 7. 配置并编译 NS-3 ---
+WORKDIR /opt/ns3/ns-3
+RUN if [ -f /etc/ns3-build-env ]; then set -a && . /etc/ns3-build-env && set +a; fi && \
+    ./ns3 configure \
+    --build-profile=optimized \
+    --enable-examples --enable-tests \
+    --enable-python-bindings \
+    --enable-modules="core;network;internet;wifi;mobility;tap-bridge;flow-monitor;propagation;spectrum;aodv;olsr;dsdv;dsr;mesh" \
+    && ./ns3 build -j$(nproc)
+
+# --- 8. 验证 ---
+RUN ./ns3 run hello-simulator
+RUN PYTHONPATH="/opt/ns3/ns-3/build/bindings/python:${PYTHONPATH}" \
+    python3 -c "from ns import ns; _ = ns.core.Simulator; _ = ns.wifi.WifiHelper; _ = ns.tap_bridge.TapBridgeHelper; _ = ns.mesh.MeshHelper; _ = ns.spectrum.MultiModelSpectrumChannel; print('ns-3 python bindings OK (版本:', ns.core.NS3_VERSION, ', 含 mesh + spectrum)')"
+
+# --- 9. 环境变量 ---
+ENV NS3_DIR=/opt/ns3/ns-3
+ENV PATH="${NS3_DIR}:${PATH}"
+ENV LD_LIBRARY_PATH="${NS3_DIR}/build/lib:${LD_LIBRARY_PATH}"
+ENV PYTHONPATH="${NS3_DIR}/build/bindings/python:/app:${PYTHONPATH}"
+
+# --- 10. 控制器代码 + UI 静态资源 ---
 WORKDIR /app
 COPY controller /app/controller
 COPY web-manager /app/dist

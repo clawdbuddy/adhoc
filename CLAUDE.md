@@ -137,7 +137,7 @@ controller/
 ### 构建方式
 
 - **`manet-node`**：`node/Dockerfile.node` 基于 Ubuntu 20.04，安装 iproute2/iperf3/python3 等运行时依赖，入口为 `node-entrypoint.py`。
-- **`ns3-controller`**：`ns3-controller/Dockerfile.controller` 基于 **Ubuntu 22.04**，通过 `pip install ns3` 安装预编译的 ns-3 Python 绑定（含 mesh / spectrum / tap-bridge / aodv / olsr / dsdv / dsr 等模块），无需从源码手动编译 NS-3.45。**构建时间从 1-2 小时缩短到几分钟**。
+- **`ns3-controller`**：`ns3-controller/Dockerfile.controller` 基于 **Ubuntu 22.04**，从源码编译 NS-3.45 并启用 Python 绑定。Ubuntu 22.04 自带 GCC 11，无需额外的 gcc-10 兼容补丁；ccache 挂载到 `/ccache` 可加速重复构建。
 - **仓库不再支持 ARM64 / 多架构**。
 
 ### 多机部署（暂未实现）
