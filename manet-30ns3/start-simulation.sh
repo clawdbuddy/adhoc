@@ -16,34 +16,13 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # ================================================================
-# ARCHITECTURE DETECTION
+# BUILD CONFIGURATION (linux/amd64 only)
 # ================================================================
-ARCH=$(uname -m)
-if [ "$ARCH" = "aarch64" ] || [ "$ARCH" = "arm64" ]; then
-    BUILD_ARCH="arm64"
-    # ARM64 devices often have limited RAM; cap parallelism if < 6GB
-    TOTAL_MEM_KB=$(grep MemTotal /proc/meminfo 2>/dev/null | awk '{print $2}' || echo 0)
-    TOTAL_MEM_GB=$((TOTAL_MEM_KB / 1024 / 1024))
-    if [ "$TOTAL_MEM_GB" -lt 6 ]; then
-        BUILD_JOBS=2
-        echo "[INFO] ARM64 detected with ${TOTAL_MEM_GB}GB RAM, using -j2 for safe compilation"
-    else
-        BUILD_JOBS=$(nproc)
-        echo "[INFO] ARM64 detected with ${TOTAL_MEM_GB}GB RAM, using -j${BUILD_JOBS}"
-    fi
-else
-    BUILD_ARCH="x86_64"
-    BUILD_JOBS=$(nproc)
-    echo "[INFO] x86_64 detected, using -j${BUILD_JOBS}"
-fi
+BUILD_ARCH="x86_64"
+BUILD_JOBS=$(nproc)
+echo "[INFO] x86_64 build, using -j${BUILD_JOBS}"
 
-# Optionally force platform via env
-if [ -n "${FORCE_PLATFORM}" ]; then
-    DOCKER_PLATFORM="--platform=${FORCE_PLATFORM}"
-    echo "[INFO] Forcing Docker platform: ${FORCE_PLATFORM}"
-else
-    DOCKER_PLATFORM=""
-fi
+DOCKER_PLATFORM=""
 
 # --- General ---
 : ${N_NODES:=30}

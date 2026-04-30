@@ -1,6 +1,6 @@
 # NS-3 802.11 AdHoc 容器化 MANET 仿真系统
 
-**多架构支持：x86_64 + ARM64（aarch64）**
+**目标平台：x86_64 Ubuntu 20.04**
 
 纯 **802.11 AdHoc (IBSS)** 网络仿真。每个 MANET 节点是一个独立的 Docker 容器，所有节点间流量被强制经过 NS-3 的 AdHoc 信道模型。所有 PHY/MAC/路由/移动模型参数都可以通过 **REST 接口**或 **React Web 管理面板**自由配置。
 
@@ -10,7 +10,7 @@
 
 ```
 +====================================================================+
-|                        宿主机 (x86_64 / ARM64)                       |
+|                        宿主机 (x86_64 Ubuntu 20.04)                  |
 |                                                                      |
 |   +-------------+        br-ns3 (Linux 网桥)         +-------------+ |
 |   | Container-0 |<--veth0------+------+------tap-0--->|  NS-3       | |
@@ -75,13 +75,7 @@ Container-0 用户应用
 
 ### 平台支持
 
-| 平台 | 架构 | 测试设备 |
-|------|------|----------|
-| x86_64 桌面/服务器 | `amd64` | Intel i7/i9、AMD Ryzen/EPYC |
-| ARM64 单板机 | `arm64` | Raspberry Pi 4/5（4GB/8GB） |
-| ARM64 SoC | `arm64` | RK3588（Orange Pi 5，8GB/16GB） |
-| ARM64 云主机 | `arm64` | AWS Graviton2/3、Ampere Altra |
-| Apple Silicon 上的 Linux VM | `arm64` | M1/M2/M3 上的 Linux VM（UTM/Parallels） |
+仅支持 **linux/amd64** —— 部署目标是 x86 Ubuntu 20.04 主机或同等 Linux VM。
 
 > ⚠️ **运行时仅支持 Linux**。控制器需要在容器中调用 `pyroute2` 直接操作宿主网络（创建桥、veth、TAP，移动 netns），需要 `tun` / `tap` / `bridge` 内核模块。**无法在 macOS 宿主上跑**——请用 x86 Ubuntu 20.04 或等价 Linux 主机/虚机。
 
@@ -379,37 +373,21 @@ curl -X POST localhost:8000/api/sim/stop
 ip link | grep -E 'br-ns3|tap-|veth' || echo "clean"
 ```
 
-## 多架构构建
+## 构建缓存
 
-两个 Dockerfile（`node/Dockerfile.node`、`ns3-controller/Dockerfile.controller`）都尊重 `TARGETPLATFORM` 并使用 `ccache`（挂载到 `/ccache`，10 GB 上限）。
-
-```bash
-# x86 主机上为 ARM64 构建（反之亦然）
-docker buildx create --use
-BUILDX_PLATFORMS=linux/arm64 docker compose build ns3-controller
-
-# 推送多架构镜像到仓库
-docker buildx build --platform linux/amd64,linux/arm64 \
-    -t your-registry/ns3-controller:latest \
-    -f ns3-controller/Dockerfile.controller \
-    --push .
-```
-
-> NS-3 在 QEMU 模拟下编译 ARM64 极慢。生产 ARM64 构建建议在原生 ARM64 主机或云实例（AWS Graviton、Oracle Cloud A1）上做。
+两个 Dockerfile（`node/Dockerfile.node`、`ns3-controller/Dockerfile.controller`）都使用 `ccache`（挂载到 `/ccache`，10 GB 上限），第二次起的构建会快很多。
 
 ## 系统要求
 
 - Docker ≥ 20.10
 - Linux 内核加载 `tun`、`tap`、`bridge`
-- **x86_64** 或 **ARM64** 宿主（自动识别）
-- 跨架构构建：`docker buildx` + QEMU binfmt（可选）
+- **x86_64**（linux/amd64）宿主
 
-| 架构 | 编译耗时 | 内存 | 备注 |
-|------|----------|------|------|
-| x86_64 | ~5–10 min | 4GB+ | 全核 `-j$(nproc)` |
-| ARM64（8GB） | ~15–25 min | 6GB+ | 全核 `-j$(nproc)` |
-| ARM64（4GB） | ~30–45 min | 4GB | `-j2`，建议开 swap |
-| ARM64（2GB） | ~60+ min | 2GB+ swap | `-j1`，非常慢 |
+| 资源 | 推荐 | 备注 |
+|------|------|------|
+| CPU | 4 核+ | NS-3.45 build 期间会跑 `-j$(nproc)` |
+| 内存 | 4 GB+ | 镜像构建峰值会用到 ~3 GB |
+| 编译耗时 | ~5–10 min | ccache 命中后通常 < 1 min |
 
 ## 故障排查
 
@@ -421,9 +399,7 @@ docker buildx build --platform linux/amd64,linux/arm64 \
 | ns-3 build 出错 `unknown module` | 重建控制器镜像：`docker compose build --no-cache ns3-controller` |
 | 吞吐 0 | 试试 `rtsCtsThreshold=65535`、检查 `pathLossExponent` 是否过大 |
 | 仿真很慢 | 减小 `nNodes`、用 `mobilityModel=grid`、关掉 `ascii` |
-| `exec format error` | 镜像架构不匹配；用正确的 `--platform` 重建 |
-| ARM64 OOM | 降低并行（`-j2`）或加 swap |
-| 跨架构构建挂死 | QEMU 模拟极慢，建议用原生 ARM64 主机 |
+| `exec format error` | 镜像是为 amd64 构建的；确认主机也是 x86_64 |
 | ccache 不生效 | 检查 `CCACHE_DIR` 卷挂载（`-v /ccache:/ccache`） |
 
 ## 许可证

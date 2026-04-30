@@ -134,9 +134,9 @@ controller/
 - 类型与预设集中在 `src/types/config.ts`。其中 `PRESETS`（default / urban / rural / debug）与 `controller/orchestrator/config.py:PRESETS` 对应。跟踪字段命名为 `pcap` / `ascii`（已从旧名 `pcapTracing` / `asciiTracing` 改名，与 Python 解析器保持一致）。
 - 各 Section：`Dashboard.tsx`、`ConfigPanel.tsx`、`ControlPanel.tsx`、`TopologyView.tsx`（基于 Canvas）、`LogView.tsx`。shadcn 原子组件位于 `src/components/ui/`。
 
-### 多架构 / 构建缓存
+### 构建缓存
 
-两个 Dockerfile（`node/Dockerfile.node`、`ns3-controller/Dockerfile.controller`）都尊重 `TARGETPLATFORM` 并使用 `ccache`（挂载到 `/ccache`，上限 10 GB）。跨架构构建时设置 compose 环境变量 `BUILDX_PLATFORMS=linux/arm64`（或 `amd64`）。控制器构建是慢项（完整 NS-3.45 编译 + Python 绑定）；节点镜像很小且很快。
+两个 Dockerfile（`node/Dockerfile.node`、`ns3-controller/Dockerfile.controller`）都跑在 `linux/amd64` 上、使用 `ccache`（挂载到 `/ccache`，上限 10 GB）。控制器构建是慢项（完整 NS-3.45 编译 + Python 绑定）；节点镜像很小且很快。**仓库不再支持 ARM64 / 多架构** —— Dockerfile、workflow 与脚本中已不再有 `TARGETPLATFORM` / `TARGETARCH` 之类的分支。
 
 ### 多机部署（暂未实现）
 

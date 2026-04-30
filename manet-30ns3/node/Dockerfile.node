@@ -1,10 +1,10 @@
-# MANET AdHoc Node Container (Multi-Arch: x86_64 / ARM64)
+# MANET AdHoc Node Container (linux/amd64 only)
 #
 # Supports three USER_APP_MODE values via node-entrypoint.sh:
 #   bind  - bind-mount /opt/userapp from host; entrypoint runs ${USER_APP_CMD:-/opt/userapp/run.sh}
 #   image - this image is the base; user supplies a derived image with /opt/userapp/run.sh baked in
 #   exec  - container starts idle (with optional sshd); backend pushes binaries via docker exec / ssh
-FROM --platform=$TARGETPLATFORM ubuntu:20.04
+FROM ubuntu:20.04
 
 ENV DEBIAN_FRONTEND=noninteractive
 
