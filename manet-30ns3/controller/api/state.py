@@ -68,7 +68,7 @@ class Session:
             if self.sim and self.sim.running:
                 raise RuntimeError("仿真器已在运行")
 
-        # 解析配置：显式配置 > 预设 > 覆盖值 > 当前配置
+        # 解析配置（优先级，高 → 低）：overrides > 显式 config > preset > 当前 self.config
         if config is not None:
             cfg = config
         elif preset is not None:

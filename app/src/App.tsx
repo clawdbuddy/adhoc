@@ -135,8 +135,8 @@ function App() {
       {/* Footer */}
       <footer className="border-t bg-card mt-8">
         <div className="max-w-[1600px] mx-auto px-4 py-3 flex items-center justify-between text-xs text-muted-foreground">
-          <span>NS-3 AdHoc 30-Node Simulation | Multi-Arch: x86_64 / ARM64</span>
-          <span>Each container = one independent node | All traffic through ns-3 AdHoc channel</span>
+          <span>NS-3 802.11s Mesh / AdHoc 30-Node Simulation | linux/amd64</span>
+          <span>Each container = one independent node | All traffic through ns-3 mesh / adhoc channel</span>
         </div>
       </footer>
     </div>

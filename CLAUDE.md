@@ -219,22 +219,14 @@ ip link | grep -E 'br-ns3|tap-|veth' || echo "clean"   # 期望输出 "clean"
 
 ## 工作笔记
 
-- 仓库根目录**不是** git 仓库。`manet-30ns3.tar.gz` 是仿真系统的一个打包（很可能是规范分发产物）。请把 `manet-30ns3/` 当作工作副本对待。
+- `manet-30ns3/` 既是工作副本也是分发副本：仓库根是 git 仓库，但 `manet-30ns3.tar.gz` 是该子目录打包出的规范分发产物，不要把它当作权威源。
 - `app/src/components/ui/` 由 shadcn 生成，**不要**手工修改原子组件，定制时优先在 `src/sections/` 中通过组合方式实现。
 - `manet-30ns3/skills/webapp-building/` 是用于初始化 `app/` 的 skill 脚手架，仅供参考，不属于运行时。
+- 持久化的设计文档位于 `/Users/binnary/.claude/plans/melodic-puzzling-pebble.md`，其中 §3 的需求溯源表（R1–R8）可用于事后审计。
+
 ## 已知问题与改进计划
 
-### 1. 前端类型与后端预设不同步（高优先级）
-
-`app/src/types/config.ts` 中的 `PRESETS` 和 `SimConfig` 字段仍是旧版 ad-hoc 参数（如 `standard='80211g'`、缺少 `mac_mode` / `phy_model` / `frequency_mhz` / `range_target_m` 等），与后端 `controller/orchestrator/config.py` 已升级的 mesh + SpectrumWifiPhy + 590 MHz 参数不一致。
-
-**解决步骤：**
-1. 在 `SimConfig` 接口中新增缺失字段：`phyModel`、`macMode`、`frequencyMhz`、`channelWidthMhz`、`rangeTargetM`。
-2. 更新 4 个 `PRESETS` 的内容，与后端 `PRESETS` 逐字段对齐。
-3. 在 `ConfigPanel.tsx` 中新增对应的 UI 控件（PHY 模型切换、MAC 模式切换、频率输入）。
-4. 更新 `App.tsx` Header 中的副标题（当前仍写 "802.11 AdHoc (IBSS)"）。
-
-### 2. 测试框架缺失（中优先级）
+### 1. 测试框架缺失（中优先级）
 
 前后端均未配置测试框架。仅有的静态检查是 `eslint` 与 `tsc -b`。
 
@@ -243,7 +235,7 @@ ip link | grep -E 'br-ns3|tap-|veth' || echo "clean"   # 期望输出 "clean"
 2. 后端：为 `netns.py` 的纯逻辑函数（如 `_normalize_keys`）编写单元测试；网络操作部分需要集成测试（在 Linux 宿主机上运行）。
 3. 前端：引入 `vitest` + `@testing-library/react`，为核心 hook（`useSimConfig` 的导入/导出逻辑）编写单元测试。
 
-### 3. 前端类型需手工与后端对齐（中优先级）
+### 2. 前端类型需手工与后端对齐（中优先级）
 
 `app/src/types/config.ts` 与 `controller/orchestrator/config.py` 之间没有自动生成机制。新增字段时需要两边手工修改。
 
@@ -251,7 +243,7 @@ ip link | grep -E 'br-ns3|tap-|veth' || echo "clean"   # 期望输出 "clean"
 1. 短期：维护一份 CHECKLIST，每次新增字段时两边同步修改。
 2. 长期：由后端通过 FastAPI 的 `/openapi.json` 生成 TS 类型（使用 `openapi-typescript`），或引入 `pydantic-to-typescript` 工具链。
 
-### 4. docker-compose v1 与 Docker 28 兼容性（低优先级，环境相关）
+### 3. docker-compose v1 与 Docker 28 兼容性（低优先级，环境相关）
 
 当前 Linux 开发环境的 `docker-compose` v1.29.2 与 Docker Engine 28.x 不兼容（`Error while fetching server API version: Not supported URL scheme http+docker`）。
 
@@ -260,18 +252,3 @@ ip link | grep -E 'br-ns3|tap-|veth' || echo "clean"   # 期望输出 "clean"
 2. 或安装 `docker-compose-plugin`（v2）替代 v1。
 3. CI 流水线（GitHub Actions）使用 `docker/build-push-action`，不受此影响。
 
-### 5. README 架构图过时（低优先级）
-
-`manet-30ns3/README.md` 中的 ASCII 拓扑图仍标注 "AdHoc"，且说明文字基于旧版 C++ 实现。
-
-**解决步骤：**
-1. 更新 ASCII 图，标注 "802.11s Mesh (HWMP)" 而非 "AdHoc"。
-2. 更新数据流说明，增加 mesh 多跳路径的描述。
-3. 删除对旧版 shell 脚本的引用说明。
-
-## 工作笔记
-
-- 仓库根目录**不是** git 仓库。`manet-30ns3.tar.gz` 是仿真系统的一个打包（很可能是规范分发产物）。请把 `manet-30ns3/` 当作工作副本对待。
-- `app/src/components/ui/` 由 shadcn 生成，**不要**手工修改原子组件，定制时优先在 `src/sections/` 中通过组合方式实现。
-- `manet-30ns3/skills/webapp-building/` 是用于初始化 `app/` 的 skill 脚手架，仅供参考，不属于运行时。
-- 持久化的设计文档位于 `/Users/binnary/.claude/plans/melodic-puzzling-pebble.md`，其中 §3 的需求溯源表（R1–R8）可用于事后审计。

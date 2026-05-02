@@ -54,21 +54,6 @@ export function ConfigPanel({
     URL.revokeObjectURL(url);
   };
 
-  const handleGenerateScript = () => {
-    const lines = Object.entries(config).map(([key, value]) => {
-      const envKey = key.replace(/([A-Z])/g, '_$1').toUpperCase().replace(/^_/, '');
-      return `export ${envKey}="${value}"`;
-    });
-    const script = `#!/bin/bash\n# Auto-generated NS-3 AdHoc launch script\n${lines.join('\n')}\n\n./start-simulation.sh\n`;
-    const blob = new Blob([script], { type: 'text/x-shellscript' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'launch.sh';
-    a.click();
-    URL.revokeObjectURL(url);
-  };
-
   return (
     <div className="space-y-6">
       {/* Presets & Actions */}
@@ -93,9 +78,6 @@ export function ConfigPanel({
         </Button>
         <Button variant="outline" size="sm" onClick={handleExport}>
           <Download className="h-4 w-4 mr-1" /> Export .conf
-        </Button>
-        <Button variant="outline" size="sm" onClick={handleGenerateScript}>
-          <Download className="h-4 w-4 mr-1" /> Export .sh
         </Button>
         <Button variant="ghost" size="sm" onClick={resetToDefault}>
           <RotateCcw className="h-4 w-4 mr-1" /> Reset
@@ -218,6 +200,16 @@ export function ConfigPanel({
                   <Label>Tx Power End (dBm)</Label>
                   <Input type="number" step={0.1} value={config.txPowerEnd}
                     onChange={e => updateConfig('txPowerEnd', Number(e.target.value))} />
+                </div>
+                <div className="space-y-2">
+                  <Label>Tx Power Levels</Label>
+                  <Input type="number" min={1} value={config.txPowerLevels}
+                    onChange={e => updateConfig('txPowerLevels', Number(e.target.value))} />
+                </div>
+                <div className="space-y-2">
+                  <Label>Antenna Gain (dBi)</Label>
+                  <Input type="number" step={0.1} value={config.antennaGain}
+                    onChange={e => updateConfig('antennaGain', Number(e.target.value))} />
                 </div>
                 <div className="space-y-2">
                   <Label>Rx Sensitivity (dBm)</Label>
@@ -369,6 +361,11 @@ export function ConfigPanel({
                     onChange={e => updateConfig('cwMax', Number(e.target.value))} />
                 </div>
               </div>
+              <div className="flex items-center gap-3">
+                <Switch id="non-unicast" checked={config.nonUnicastMode}
+                  onCheckedChange={v => updateConfig('nonUnicastMode', v)} />
+                <Label htmlFor="non-unicast">Non-Unicast Mode (broadcast/multicast at lowest data rate)</Label>
+              </div>
             </CardContent>
           </Card>
         </TabsContent>
@@ -448,6 +445,24 @@ export function ConfigPanel({
                   </div>
                 </div>
               )}
+
+              {config.routingProtocol === 'dsdv' && (
+                <div className="border-t pt-4">
+                  <h4 className="font-semibold mb-3">DSDV Parameters</h4>
+                  <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                    <div className="space-y-2">
+                      <Label>Periodic Update Interval (s)</Label>
+                      <Input type="number" step={0.1} value={config.dsdvPeriodicUpdateInterval}
+                        onChange={e => updateConfig('dsdvPeriodicUpdateInterval', Number(e.target.value))} />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Settling Time (s)</Label>
+                      <Input type="number" step={0.1} value={config.dsdvSettlingTime}
+                        onChange={e => updateConfig('dsdvSettlingTime', Number(e.target.value))} />
+                    </div>
+                  </div>
+                </div>
+              )}
             </CardContent>
           </Card>
         </TabsContent>
@@ -522,6 +537,22 @@ export function ConfigPanel({
                       <Label>Time Step (s)</Label>
                       <Input type="number" step={0.1} value={config.rwTime}
                         onChange={e => updateConfig('rwTime', Number(e.target.value))} />
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {config.mobilityModel === 'gauss-markov' && (
+                <div className="border-t pt-4">
+                  <h4 className="font-semibold mb-3">Gauss-Markov Parameters</h4>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 max-w-2xl">
+                    <div className="space-y-2">
+                      <Label>Alpha (memory level): {config.gmAlpha.toFixed(2)}</Label>
+                      <Slider min={0} max={1} step={0.05} value={[config.gmAlpha]}
+                        onValueChange={v => updateConfig('gmAlpha', v[0])} />
+                      <p className="text-xs text-muted-foreground">
+                        0 = totally random; 1 = perfect linear motion
+                      </p>
                     </div>
                   </div>
                 </div>

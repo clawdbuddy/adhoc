@@ -19,8 +19,8 @@
 |   +-------------+              |      |              |  + PHY      | |
 |                                |      |              |             | |
 |   +-------------+              |      |              |  每帧由      | |
-|   | Container-1 |<--veth1------+      |              |  AdHoc MAC   | |
-|   |  [节点 1]    |                     |              |  处理，再由  | |
+|   | Container-1 |<--veth1------+      |              |  Mesh / Adhoc| |
+|   |  [节点 1]    |                     |              |  MAC 处理，  | |
 |   |  eth0       |                     |              |  PHY 决定    | |
 |   +-------------+                     |              |  转发或丢弃  | |
 |                                       |              |             | |
@@ -34,7 +34,7 @@
 |                                                                       |
 |  关键点：每个容器独占自己的网络命名空间。                                 |
 |        容器之间无法直接相互通信。                                        |
-|        所有跨节点流量必须经过 ns-3 AdHoc 信道模型。                       |
+|        所有跨节点流量必须经过 ns-3 802.11s Mesh / AdHoc 信道模型。       |
 +====================================================================+
 ```
 
@@ -173,10 +173,10 @@ curl -X PUT localhost:8000/api/config \
 
 | Preset | 适用场景 | 关键设置 |
 |--------|----------|----------|
-| `default` | 默认 / 平衡 | LogDistance n=3.0、Nakagami M0=1.5、AODV |
-| `urban` | 高密度城市 | LogDistance n=4.0、强衰落、AODV 快速 hello、始终 RTS/CTS |
-| `rural` | 开阔野外 | TwoRayGround、轻衰落、OLSR、关闭 RTS/CTS |
-| `debug` | 快速调试 | 5 节点、60 秒、无衰落、网格定点、完整 trace |
+| `default` | 用户目标场景（mesh） | 802.11s mesh + SpectrumWifiPhy + Friis @ 590 MHz UHF + 30 节点 + 5 km × 5 km + 4 km LOS + AODV |
+| `urban` | 高密度城市（mesh） | LogDistance n=3.5、Nakagami 强衰落、Aarf、始终 RTS/CTS、2 km × 2 km |
+| `rural` | 开阔野外（mesh） | FreeSpace、关闭衰落、Grid 8 km × 8 km、关闭 RTS/CTS |
+| `debug` | 5 节点冒烟测试（adhoc） | adhoc 模式、routing=none、Grid 5×5 / 50 m 间距、200 m 视距、ASCII trace |
 
 ## 完整参数参考
 
@@ -196,24 +196,28 @@ curl -X PUT localhost:8000/api/config \
 
 | 参数 | 默认值 | 取值 |
 |------|--------|------|
-| `standard` | `80211g` | `80211b`、`80211a`、`80211g`、`80211n-2.4GHz`、`80211n-5GHz`、`80211ac`、`80211ax-2.4GHz`、`80211ax-5GHz` |
-| `dataRate` | `ErpOfdmRate54Mbps` | 任意 ns-3 wifi mode 字符串 |
-| `txPowerStart` / `txPowerEnd` | 20.0 | 发射功率（dBm） |
+| `standard` | `80211a` | `80211b`、`80211a`、`80211g`、`80211n-2.4GHz`、`80211n-5GHz`、`80211ac`、`80211ax-2.4GHz`、`80211ax-5GHz` |
+| `phyModel` | `spectrum` | `yans` 或 `spectrum`（默认走 `SpectrumWifiPhy + MultiModelSpectrumChannel`） |
+| `frequencyMhz` | 590 | 中心频率（MHz）；默认覆盖 500–680 MHz UHF 频段，路径损耗按此频率算 |
+| `channelWidthMhz` | 20 | 信道带宽（MHz） |
+| `rangeTargetM` | 4000 | 期望视距覆盖半径（m），用于显示与冒烟检查 |
+| `dataRate` | `OfdmRate6Mbps` | 任意 ns-3 wifi mode 字符串 |
+| `txPowerStart` / `txPowerEnd` | 30.0 | 发射功率（dBm） |
 | `txPowerLevels` | 1 | 功率级数 |
-| `rxSensitivity` | -85.0 | 接收灵敏度（dBm） |
-| `ccaThreshold` | -62.0 | CCA 能量检测门限（dBm） |
-| `antennaGain` | 0.0 | 天线增益（dBi） |
+| `rxSensitivity` | -92.0 | 接收灵敏度（dBm） |
+| `ccaThreshold` | -82.0 | CCA 能量检测门限（dBm） |
+| `antennaGain` | 3.0 | 天线增益（dBi） |
 
 ### 传播模型
 
 | 参数 | 默认值 | 说明 |
 |------|--------|------|
 | `propagationDelay` | `ConstantSpeed` | `ConstantSpeed` 或 `Random` |
-| `pathLossModel` | `LogDistance` | `LogDistance`、`FreeSpace`、`TwoRayGround`、`ThreeLogDistance`、`Cost231`、`Range` |
-| `pathLossExponent` | 3.0 | 路径损耗指数 n（2 = 自由空间，3 = 城市，4 = 高密度城市） |
+| `pathLossModel` | `FreeSpace` | `LogDistance`、`FreeSpace`、`TwoRayGround`、`ThreeLogDistance`、`Cost231`、`Range`（`spectrum` PHY 默认 Friis @ 590 MHz） |
+| `pathLossExponent` | 2.0 | 路径损耗指数 n（2 = 自由空间，3 = 城市，4 = 高密度城市） |
 | `pathLossRefLoss` | 46.6777 | 1m 处参考损耗（dB） |
 | `pathLossRefDistance` | 1.0 | 参考距离（m） |
-| `enableFading` | true | 是否启用衰落 |
+| `enableFading` | false | 是否启用衰落（mesh 默认关闭，让 4 km 视距预算稳定） |
 | `fadingModel` | `Nakagami` | `Nakagami` 或 `Jakes` |
 | `nakagamiM0` | 1.5 | d < d1 段的 m 因子（m<1 严重，m=1 Rayleigh，m>2 轻） |
 | `nakagamiM1` | 1.0 | d1 < d < d2 段的 m 因子 |
@@ -225,8 +229,9 @@ curl -X PUT localhost:8000/api/config \
 
 | 参数 | 默认值 | 说明 |
 |------|--------|------|
-| `ssid` | `adhoc-30ns3` | IBSS 网络名 |
-| `bssid` | `00:00:00:00:AD:H0` | IBSS BSSID（hex） |
+| `macMode` | `mesh` | `mesh`（802.11s + HWMP，L2 多跳）或 `adhoc`（IBSS，单跳广播域，多跳由上层路由完成） |
+| `ssid` | `adhoc-30ns3` | IBSS / mesh 网络名 |
+| `bssid` | `00:00:00:00:AD:H0` | IBSS BSSID（hex，仅 `adhoc` 模式） |
 | `rateControl` | `Arf` | `Arf`、`Aarf`、`Onoe`、`Constant`、`Minstrel` |
 | `rtsCtsThreshold` | 2200 | RTS/CTS 阈值（字节，**65535 = 关闭**） |
 | `fragmentationThreshold` | 2200 | 最大分片字节 |
@@ -260,15 +265,15 @@ curl -X PUT localhost:8000/api/config \
 | 参数 | 默认值 | 说明 |
 |------|--------|------|
 | `mobilityModel` | `random-walk` | `random-walk`、`gauss-markov`、`grid`、`constant` |
-| `mobilityMinX/MaxX` | 0.0/500.0 | X 方向边界（m） |
-| `mobilityMinY/MaxY` | 0.0/500.0 | Y 方向边界（m） |
+| `mobilityMinX/MaxX` | 0.0/5000.0 | X 方向边界（m） |
+| `mobilityMinY/MaxY` | 0.0/5000.0 | Y 方向边界（m） |
 | **RandomWalk** | | |
 | `rwMinSpeed` / `rwMaxSpeed` | 0.5/3.0 | 速度区间（m/s） |
-| `rwDistance` | 20.0 | 转向前的距离（m） |
+| `rwDistance` | 200.0 | 转向前的距离（m） |
 | `rwMode` | `Time` | `Time` 或 `Distance` |
 | `rwTime` | 1.0 | 时间步长（s） |
 | **Grid** | | |
-| `gridDeltaX/Y` | 80.0/80.0 | 网格间距（m） |
+| `gridDeltaX/Y` | 800.0/800.0 | 网格间距（m） |
 | `gridWidth` | 6 | 每行节点数 |
 | **GaussMarkov** | | |
 | `gmAlpha` | 0.85 | 记忆因子（0–1，越大相关性越强） |
@@ -318,15 +323,11 @@ manet-30ns3/
 │  ├─ orchestrator/            #   config / netns / docker_mgr / sim_runner / telemetry
 │  └─ api/                     #   FastAPI 应用 + REST 路由 + /ws/telemetry
 ├─ ns3-controller/             # 控制器 Dockerfile（含 NS-3.45 + Python 绑定）
-├─ node/                       # 节点 Dockerfile + node-entrypoint.sh
+├─ node/                       # 节点 Dockerfile + node-entrypoint.py
 ├─ web-manager/                # 预构建的 React 静态包（由 ../app 产出）
 ├─ docker-compose.yml          # 控制器 + 节点镜像构建目标
 │
-├─ ns3-code/                   # ⚠ 旧版 C++ scratch 程序（仅作历史参考）
-├─ setup-network.sh            # ⚠ 旧
-├─ start-simulation.sh         # ⚠ 旧
-├─ cleanup.sh                  # ⚠ 旧
-└─ web-manager-start.sh        # ⚠ 旧
+└─ ns3-code/                   # ⚠ 旧版 C++ scratch 程序（仅作历史参考）
 ```
 
 ## 多机部署（Phase 2，已设计未实现）

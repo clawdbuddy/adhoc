@@ -30,7 +30,7 @@ export function useSimConfig() {
   }, []);
 
   const exportConfig = useCallback((): string => {
-    const lines: string[] = ['// NS-3 AdHoc Simulation Configuration'];
+    const lines: string[] = ['// NS-3 802.11s Mesh / AdHoc Simulation Configuration'];
     (Object.keys(config) as Array<keyof SimConfig>).forEach(key => {
       const value = config[key];
       if (typeof value === 'boolean') {

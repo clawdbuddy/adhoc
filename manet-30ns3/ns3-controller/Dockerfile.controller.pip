@@ -1,0 +1,74 @@
+# NS-3 MANET 控制器 Dockerfile（pip install ns3 路线 / linux/amd64）
+# 与默认 Dockerfile.controller（源码编译 NS-3.45）并存,适用于希望几分钟即可
+# 出镜像、不在乎自定义编译选项的场景。
+#
+# 已知风险（来自 commit 6f4ca67）:
+#   `from ns import ns` 在某些环境下会陷入 cppyy/cling 初始化死循环
+#   （CPU 100%,15min+）。本文件用 `timeout 120` 包住绑定冒烟,
+#   一旦命中即时失败,不再阻塞 build。
+#
+# apt 源:中科大 mirrors.ustc.edu.cn
+# pip 源:腾讯 mirrors.cloud.tencent.com
+
+FROM ubuntu:22.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV TZ=UTC
+ENV LANG=C.UTF-8
+ENV LC_ALL=C.UTF-8
+
+# --- 0. 替换 apt 源为国科大镜像 ---
+RUN sed -i 's|archive.ubuntu.com|mirrors.ustc.edu.cn|g' /etc/apt/sources.list \
+    && sed -i 's|security.ubuntu.com|mirrors.ustc.edu.cn|g' /etc/apt/sources.list
+
+# --- 1. 系统运行时依赖 ---
+# pip 包内的预编译 .so 仍依赖系统的 libboost / libpcap / libgsl / libsqlite3 / libxml2
+# 才能 dlopen 成功;另装一组运行时网络工具用于仿真节点诊断。
+# build-essential 是为 cppyy-backend 准备的:其 wheel 没有 manylinux 版本,
+# 必须现场用 g++ 现编译(否则 pip install ns3 会因找不到 x86_64-linux-gnu-g++ 失败)。
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        build-essential \
+        python3 python3-pip python3-dev \
+        libboost-all-dev libgsl-dev libpcap-dev \
+        libsqlite3-dev sqlite3 libxml2-dev \
+        iproute2 net-tools iputils-ping bridge-utils \
+        tcpdump iw wireless-tools socat nmap \
+        ca-certificates curl wget vim htop coreutils \
+    && rm -rf /var/lib/apt/lists/*
+
+# --- 2. 替换 pip 源为腾讯镜像 ---
+RUN pip3 config set global.index-url https://mirrors.cloud.tencent.com/pypi/simple \
+    && pip3 config set global.trusted-host mirrors.cloud.tencent.com
+
+# --- 3. Python 依赖 ---
+# - ns3:从 PyPI 拉取预编译 wheel,内含 cppyy 绑定 + 全模块 .so
+# - 控制器运行时:FastAPI / pydantic / docker SDK / pyroute2
+RUN python3 -m pip install --no-cache-dir --upgrade pip setuptools wheel \
+    && python3 -m pip install --no-cache-dir ns3==3.36 \
+    && python3 -m pip install --no-cache-dir \
+        fastapi==0.110.* "uvicorn[standard]"==0.29.* \
+        pydantic==2.* pydantic-settings==2.* \
+        docker==7.* pyroute2==0.7.* \
+        websockets==12.* httpx==0.27.*
+
+## --- 4. 验证(带 120s 超时,防 cppyy 死循环阻塞 build) ---
+RUN timeout 120 python3 -c "from ns import ns; \
+    _ = ns.core.Simulator; \
+    _ = ns.wifi.WifiHelper; \
+    _ = ns.tap_bridge.TapBridgeHelper; \
+    _ = ns.mesh.MeshHelper; \
+    _ = ns.spectrum.MultiModelSpectrumChannel; \
+    print('ns-3 python bindings OK (版本:', ns.core.NS3_VERSION, ', 含 mesh + spectrum)')" \
+    || (echo '!!! cppyy 初始化超时,见 commit 6f4ca67 已知问题,改用源码编译版 Dockerfile.controller'; exit 1)
+
+# --- 5. 控制器代码 + UI 静态资源 ---
+# 构建上下文必须是 manet-30ns3/(项目根目录),由 docker-compose.yml 的 context 指定。
+WORKDIR /app
+COPY controller /app/controller
+COPY web-manager /app/dist
+
+ENV MANET_WEB_DIR=/app/dist
+EXPOSE 8000
+
+WORKDIR /app
+CMD ["uvicorn", "controller.api.main:app", "--host", "0.0.0.0", "--port", "8000"]
