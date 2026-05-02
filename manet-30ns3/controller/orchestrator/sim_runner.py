@@ -431,8 +431,19 @@ class SimRunner:
         TapBridge UseBridge 仍可使用——整张 mesh 在容器视角下表现为单一 L2
         广播域，距离超出单跳 LOS 的节点之间的报文由 HWMP 路径选择算法自动
         通过中间节点中继。不再需要在容器内运行额外的路由 daemon。
+
+        回退：pybindgen 绑定中 MeshHelper.Install 可能缺失，此时降级为 adhoc。
         """
         mesh_helper = ns.mesh.MeshHelper.Default()
+        if not hasattr(mesh_helper, "Install"):
+            log.warning("MeshHelper.Install 在 pybindgen 绑定中缺失，降级为 adhoc")
+            mac = ns.wifi.WifiMacHelper()
+            mac.SetType(
+                "ns3::AdhocWifiMac",
+                "Ssid", ns.wifi.SsidValue(ns.wifi.Ssid(cfg.ssid)),
+            )
+            return ns.wifi.WifiHelper().Install(phy, mac, nodes)
+
         mesh_helper.SetStackInstaller("ns3::Dot11sStack")
         mesh_helper.SetStandard(self._wifi_standard(ns, cfg.standard))
         # RandomStart：mesh 节点上电后随机抖动（避免同时发 BCN）
