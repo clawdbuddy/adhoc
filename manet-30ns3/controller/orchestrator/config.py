@@ -145,7 +145,7 @@ class SimConfig(_CamelModel):
     enable_mobility_trace: bool = False
 
     # TapBridge
-    tap_mode: Literal["UseBridge", "UseLocal"] = "UseBridge"
+    tap_mode: Literal["UseBridge", "UseLocal"] = "UseLocal"
     tap_prefix: str = "tap-"
 
     # ----- helpers -----------------------------------------------------------
