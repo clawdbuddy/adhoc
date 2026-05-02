@@ -621,12 +621,19 @@ class SimRunner:
                 # flows
                 if runner._fm is not None:
                     runner._fm.CheckForLostPackets()
-                    classifier = runner._fm.GetClassifier()
                     stats = runner._fm.GetFlowStats()
+                    # pybindgen/cppyy 绑定中 GetClassifier 可能缺失，跳过源/目的解析
+                    classifier = None
+                    if hasattr(runner._fm, "GetClassifier"):
+                        classifier = runner._fm.GetClassifier()
                     with runner._lock:
                         runner._flows_runtime.clear()
                         for fid, st in stats:
-                            ft = classifier.FindFlow(fid)
+                            source, destination = "", ""
+                            if classifier:
+                                ft = classifier.FindFlow(fid)
+                                source = str(ft.sourceAddress)
+                                destination = str(ft.destinationAddress)
                             elapsed = max(
                                 (st.timeLastRxPacket.GetSeconds()
                                  - st.timeFirstTxPacket.GetSeconds()),
@@ -637,8 +644,8 @@ class SimRunner:
                                 if st.rxPackets else 0.0
                             runner._flows_runtime[fid] = FlowRuntime(
                                 flow_id=fid,
-                                source=str(ft.sourceAddress),
-                                destination=str(ft.destinationAddress),
+                                source=source,
+                                destination=destination,
                                 tx_packets=st.txPackets,
                                 rx_packets=st.rxPackets,
                                 lost_packets=st.lostPackets,
