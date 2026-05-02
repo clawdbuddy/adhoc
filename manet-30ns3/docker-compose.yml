@@ -29,6 +29,7 @@ services:
     container_name: ns3-controller
     privileged: true
     network_mode: host
+    pid: host
     cap_add:
       - NET_ADMIN
       - NET_RAW
@@ -59,6 +60,7 @@ services:
     container_name: ns3-controller-347
     privileged: true
     network_mode: host
+    pid: host
     cap_add:
       - NET_ADMIN
       - NET_RAW
