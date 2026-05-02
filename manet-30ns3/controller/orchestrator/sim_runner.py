@@ -529,7 +529,7 @@ class SimRunner:
                 "Time", ns.core.StringValue(f"{cfg.rw_time}s"),
                 "Distance", ns.core.DoubleValue(cfg.rw_distance),
                 "Bounds",
-                ns.core.RectangleValue(
+                ns.mobility.RectangleValue(
                     ns.mobility.Rectangle(cfg.mobility_min_x, cfg.mobility_max_x,
                                           cfg.mobility_min_y, cfg.mobility_max_y),
                 ),
@@ -542,9 +542,9 @@ class SimRunner:
             mob.SetMobilityModel(
                 "ns3::GaussMarkovMobilityModel",
                 "Bounds",
-                ns.core.BoxValue(ns.mobility.Box(cfg.mobility_min_x, cfg.mobility_max_x,
-                                                 cfg.mobility_min_y, cfg.mobility_max_y,
-                                                 0.0, 0.0)),
+                ns.mobility.BoxValue(ns.mobility.Box(cfg.mobility_min_x, cfg.mobility_max_x,
+                                                     cfg.mobility_min_y, cfg.mobility_max_y,
+                                                     0.0, 0.0)),
                 "Alpha", ns.core.DoubleValue(cfg.gm_alpha),
             )
         elif m == "grid":
