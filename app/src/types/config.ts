@@ -157,8 +157,8 @@ export const RW_MODES = ['Time', 'Distance'];
 // 预设与后端 controller/orchestrator/config.py:PRESETS 逐字段对齐
 export const PRESETS = {
   default: {
-    name: 'Default / Mesh',
-    description: 'SpectrumWifiPhy + 802.11s mesh (HWMP), UHF 590 MHz, 4 km LOS, 5x5 km area',
+    name: '默认 / Mesh',
+    description: 'SpectrumWifiPhy + 802.11s mesh (HWMP), UHF 590 MHz, 4 km 视距, 5x5 km 区域',
     config: {
       nNodes: 30, simulationTime: 300, seed: 1, run: 1,
       standard: '80211a', phyModel: 'spectrum', frequencyMhz: 590, channelWidthMhz: 20, rangeTargetM: 4000,
@@ -184,8 +184,8 @@ export const PRESETS = {
     } as SimConfig,
   },
   urban: {
-    name: 'Urban Dense',
-    description: 'Dense urban: heavy path loss, strong fading, mesh with AARF, reduced range',
+    name: '城市密集',
+    description: '密集城区: 高路径损耗, 强衰落, mesh + AARF, 缩减覆盖范围',
     config: {
       nNodes: 30, simulationTime: 300, seed: 1, run: 1,
       standard: '80211a', phyModel: 'spectrum', frequencyMhz: 590, channelWidthMhz: 20, rangeTargetM: 4000,
@@ -211,8 +211,8 @@ export const PRESETS = {
     } as SimConfig,
   },
   rural: {
-    name: 'Rural / Open Field',
-    description: 'Open field: FreeSpace, large 8x8 km grid, high TX power, mesh',
+    name: '乡村 / 开阔地带',
+    description: '开阔地带: 自由空间, 8x8 km 大网格, 高发射功率, mesh',
     config: {
       nNodes: 30, simulationTime: 300, seed: 1, run: 1,
       standard: '80211a', phyModel: 'spectrum', frequencyMhz: 590, channelWidthMhz: 20, rangeTargetM: 4000,
@@ -238,8 +238,8 @@ export const PRESETS = {
     } as SimConfig,
   },
   debug: {
-    name: 'Debug / Minimal',
-    description: '5 nodes, 60s, ad-hoc mode, no routing, small grid, full tracing',
+    name: '调试 / 最小配置',
+    description: '5 节点, 60 秒, ad-hoc 模式, 无路由, 小网格, 全跟踪',
     config: {
       nNodes: 5, simulationTime: 60, seed: 1, run: 1,
       standard: '80211a', phyModel: 'spectrum', frequencyMhz: 590, channelWidthMhz: 20, rangeTargetM: 200,

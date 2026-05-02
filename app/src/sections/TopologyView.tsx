@@ -17,9 +17,9 @@ function StatusIcon({ status }: { status: string }) {
 }
 
 function StatusBadge({ status }: { status: string }) {
-  if (status === 'online') return <Badge variant="outline" className="text-green-600 border-green-600 text-xs">Online</Badge>;
-  if (status === 'busy') return <Badge variant="outline" className="text-yellow-600 border-yellow-600 text-xs">Busy</Badge>;
-  return <Badge variant="outline" className="text-red-600 border-red-600 text-xs">Offline</Badge>;
+  if (status === 'online') return <Badge variant="outline" className="text-green-600 border-green-600 text-xs">在线</Badge>;
+  if (status === 'busy') return <Badge variant="outline" className="text-yellow-600 border-yellow-600 text-xs">忙碌</Badge>;
+  return <Badge variant="outline" className="text-red-600 border-red-600 text-xs">离线</Badge>;
 }
 
 export function TopologyView({ nodes, flows }: TopologyViewProps) {
@@ -127,7 +127,7 @@ export function TopologyView({ nodes, flows }: TopologyViewProps) {
             <Crosshair className="h-5 w-5 text-blue-500" />
             <div>
               <p className="text-2xl font-bold">{nodes.length}</p>
-              <p className="text-xs text-muted-foreground">Total Nodes</p>
+              <p className="text-xs text-muted-foreground">总节点数</p>
             </div>
           </CardContent>
         </Card>
@@ -136,7 +136,7 @@ export function TopologyView({ nodes, flows }: TopologyViewProps) {
             <Wifi className="h-5 w-5 text-green-500" />
             <div>
               <p className="text-2xl font-bold">{onlineCount}</p>
-              <p className="text-xs text-muted-foreground">Online</p>
+              <p className="text-xs text-muted-foreground">在线</p>
             </div>
           </CardContent>
         </Card>
@@ -145,7 +145,7 @@ export function TopologyView({ nodes, flows }: TopologyViewProps) {
             <ArrowDown className="h-5 w-5 text-blue-500" />
             <div>
               <p className="text-2xl font-bold">{totalRx.toLocaleString()}</p>
-              <p className="text-xs text-muted-foreground">Total Rx</p>
+              <p className="text-xs text-muted-foreground">总接收</p>
             </div>
           </CardContent>
         </Card>
@@ -154,7 +154,7 @@ export function TopologyView({ nodes, flows }: TopologyViewProps) {
             <ArrowUp className="h-5 w-5 text-purple-500" />
             <div>
               <p className="text-2xl font-bold">{totalTx.toLocaleString()}</p>
-              <p className="text-xs text-muted-foreground">Total Tx</p>
+              <p className="text-xs text-muted-foreground">总发送</p>
             </div>
           </CardContent>
         </Card>
@@ -164,8 +164,8 @@ export function TopologyView({ nodes, flows }: TopologyViewProps) {
         {/* Topology Canvas */}
         <Card className="lg:col-span-2">
           <CardHeader className="pb-2">
-            <CardTitle className="text-base">Network Topology</CardTitle>
-            <p className="text-xs text-muted-foreground">Real-time node positions and neighbor links</p>
+            <CardTitle className="text-base">网络拓扑</CardTitle>
+            <p className="text-xs text-muted-foreground">实时节点位置与邻居链路</p>
           </CardHeader>
           <CardContent>
             <canvas
@@ -173,10 +173,10 @@ export function TopologyView({ nodes, flows }: TopologyViewProps) {
               style={{ width: '100%', height: '400px', borderRadius: '8px', background: '#f9fafb' }}
             />
             <div className="flex items-center gap-4 mt-2 text-xs text-muted-foreground">
-              <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-full bg-green-500 inline-block" /> Online</span>
-              <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-full bg-yellow-500 inline-block" /> Busy</span>
-              <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-full bg-red-500 inline-block" /> Offline</span>
-              <span className="flex items-center gap-1"><span className="w-8 h-0.5 bg-blue-300 inline-block" /> Neighbor Link</span>
+              <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-full bg-green-500 inline-block" /> 在线</span>
+              <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-full bg-yellow-500 inline-block" /> 忙碌</span>
+              <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-full bg-red-500 inline-block" /> 离线</span>
+              <span className="flex items-center gap-1"><span className="w-8 h-0.5 bg-blue-300 inline-block" /> 邻居链路</span>
             </div>
           </CardContent>
         </Card>
@@ -184,7 +184,7 @@ export function TopologyView({ nodes, flows }: TopologyViewProps) {
         {/* Node List */}
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-base">Node Status</CardTitle>
+            <CardTitle className="text-base">节点状态</CardTitle>
           </CardHeader>
           <CardContent className="p-0">
             <ScrollArea className="h-[400px]">
@@ -218,7 +218,7 @@ export function TopologyView({ nodes, flows }: TopologyViewProps) {
       {flows.length > 0 && (
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-base">Flow Statistics</CardTitle>
+            <CardTitle className="text-base">流统计</CardTitle>
           </CardHeader>
           <CardContent>
             <ScrollArea className="h-[250px]">
@@ -230,9 +230,9 @@ export function TopologyView({ nodes, flows }: TopologyViewProps) {
                     <span className="text-muted-foreground">{'->'}</span>
                     <span className="font-mono text-xs text-green-600">{flow.destination}</span>
                     <div className="flex-1" />
-                    <span className="text-xs">Tx: {flow.txPackets.toLocaleString()}</span>
-                    <span className="text-xs">Rx: {flow.rxPackets.toLocaleString()}</span>
-                    <span className="text-xs text-red-500">Lost: {flow.lostPackets}</span>
+                    <span className="text-xs">发: {flow.txPackets.toLocaleString()}</span>
+                    <span className="text-xs">收: {flow.rxPackets.toLocaleString()}</span>
+                    <span className="text-xs text-red-500">丢失: {flow.lostPackets}</span>
                     <span className="text-xs text-purple-600">{(flow.throughput).toFixed(2)} Mbps</span>
                   </div>
                 ))}

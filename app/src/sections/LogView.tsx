@@ -15,7 +15,7 @@ export function LogView({ logs, onClear }: LogViewProps) {
       <CardHeader className="pb-2 flex flex-row items-center justify-between">
         <CardTitle className="text-sm flex items-center gap-2">
           <Terminal className="h-4 w-4" />
-          System Logs
+          系统日志
           <Badge variant="secondary" className="text-xs">{logs.length}</Badge>
         </CardTitle>
         <Button variant="ghost" size="sm" onClick={onClear}>
@@ -26,7 +26,7 @@ export function LogView({ logs, onClear }: LogViewProps) {
         <ScrollArea className="h-[500px]">
           <div className="space-y-0 px-4 pb-4">
             {logs.length === 0 && (
-              <p className="text-sm text-muted-foreground py-4">No logs yet. Start simulation to see activity.</p>
+              <p className="text-sm text-muted-foreground py-4">暂无日志。启动仿真以查看活动。</p>
             )}
             {logs.map((log, i) => {
               let colorClass = 'text-gray-700';

@@ -37,15 +37,15 @@ function App() {
               <Network className="h-5 w-5 text-primary-foreground" />
             </div>
             <div>
-              <h1 className="text-lg font-bold leading-tight">NS-3 MANET Manager</h1>
-              <p className="text-xs text-muted-foreground">802.11s Mesh / AdHoc Simulation Control Panel</p>
+              <h1 className="text-lg font-bold leading-tight">NS-3 MANET 管理器</h1>
+              <p className="text-xs text-muted-foreground">802.11s Mesh / AdHoc 仿真控制面板</p>
             </div>
           </div>
           <div className="flex-1" />
           <div className="flex items-center gap-2">
             <div className={`h-2.5 w-2.5 rounded-full ${status.running ? 'bg-green-500 animate-pulse' : 'bg-red-500'}`} />
             <span className="text-sm font-medium">
-              {status.running ? 'Simulation Active' : 'Idle'}
+              {status.running ? '仿真运行中' : '空闲'}
             </span>
           </div>
         </div>
@@ -59,19 +59,19 @@ function App() {
             <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
               <TabsList className="grid w-full grid-cols-5">
                 <TabsTrigger value="dashboard">
-                  <LayoutDashboard className="h-4 w-4 mr-1.5" /> Dashboard
+                  <LayoutDashboard className="h-4 w-4 mr-1.5" /> 仪表板
                 </TabsTrigger>
                 <TabsTrigger value="config">
-                  <Settings className="h-4 w-4 mr-1.5" /> Configuration
+                  <Settings className="h-4 w-4 mr-1.5" /> 配置
                 </TabsTrigger>
                 <TabsTrigger value="topology">
-                  <Network className="h-4 w-4 mr-1.5" /> Topology
+                  <Network className="h-4 w-4 mr-1.5" /> 拓扑
                 </TabsTrigger>
                 <TabsTrigger value="status">
-                  <Activity className="h-4 w-4 mr-1.5" /> Realtime
+                  <Activity className="h-4 w-4 mr-1.5" /> 实时
                 </TabsTrigger>
                 <TabsTrigger value="logs">
-                  <ScrollText className="h-4 w-4 mr-1.5" /> Logs
+                  <ScrollText className="h-4 w-4 mr-1.5" /> 日志
                 </TabsTrigger>
               </TabsList>
 
@@ -135,8 +135,8 @@ function App() {
       {/* Footer */}
       <footer className="border-t bg-card mt-8">
         <div className="max-w-[1600px] mx-auto px-4 py-3 flex items-center justify-between text-xs text-muted-foreground">
-          <span>NS-3 802.11s Mesh / AdHoc 30-Node Simulation | linux/amd64</span>
-          <span>Each container = one independent node | All traffic through ns-3 mesh / adhoc channel</span>
+          <span>NS-3 802.11s Mesh / AdHoc 30 节点仿真 | linux/amd64</span>
+          <span>每个容器 = 一个独立节点 | 所有流量经过 ns-3 mesh / adhoc 信道</span>
         </div>
       </footer>
     </div>

@@ -30,7 +30,7 @@ export function ControlPanel({ status, config, onStart, onStop }: ControlPanelPr
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <Terminal className="h-5 w-5" />
-            Simulation Control
+            仿真控制
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -38,7 +38,7 @@ export function ControlPanel({ status, config, onStart, onStop }: ControlPanelPr
           <div className="flex items-center gap-3">
             <div className={`h-4 w-4 rounded-full ${status.running ? 'bg-green-500 animate-pulse' : 'bg-red-500'}`} />
             <span className="text-lg font-semibold">
-              {status.running ? 'Running' : 'Stopped'}
+              {status.running ? '运行中' : '已停止'}
             </span>
             {status.running && (
               <Badge variant="outline" className="text-green-600 border-green-600">
@@ -64,7 +64,7 @@ export function ControlPanel({ status, config, onStart, onStop }: ControlPanelPr
               variant={status.running ? 'outline' : 'default'}
             >
               <Play className="h-4 w-4 mr-2" />
-              Start Simulation
+              启动仿真
             </Button>
             <Button
               onClick={onStop}
@@ -73,7 +73,7 @@ export function ControlPanel({ status, config, onStart, onStop }: ControlPanelPr
               className="flex-1"
             >
               <Square className="h-4 w-4 mr-2" />
-              Stop
+              停止
             </Button>
           </div>
         </CardContent>
@@ -84,39 +84,39 @@ export function ControlPanel({ status, config, onStart, onStop }: ControlPanelPr
         <CardHeader className="pb-2">
           <CardTitle className="text-sm flex items-center gap-2">
             <Settings className="h-4 w-4" />
-            Active Configuration
+            当前配置
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-3 text-sm">
           <div className="grid grid-cols-2 gap-2">
             <div className="flex items-center gap-2">
               <Radio className="h-3.5 w-3.5 text-muted-foreground" />
-              <span className="text-muted-foreground">Nodes:</span>
+              <span className="text-muted-foreground">节点数:</span>
               <span className="font-mono font-semibold">{config.nNodes}</span>
             </div>
             <div className="flex items-center gap-2">
               <Wifi className="h-3.5 w-3.5 text-muted-foreground" />
-              <span className="text-muted-foreground">Standard:</span>
+              <span className="text-muted-foreground">标准:</span>
               <span className="font-mono font-semibold">{config.standard}</span>
             </div>
             <div className="flex items-center gap-2">
               <Route className="h-3.5 w-3.5 text-muted-foreground" />
-              <span className="text-muted-foreground">Routing:</span>
+              <span className="text-muted-foreground">路由:</span>
               <span className="font-mono font-semibold uppercase">{config.routingProtocol}</span>
             </div>
             <div className="flex items-center gap-2">
               <MapPin className="h-3.5 w-3.5 text-muted-foreground" />
-              <span className="text-muted-foreground">Mobility:</span>
+              <span className="text-muted-foreground">移动模型:</span>
               <span className="font-mono font-semibold">{config.mobilityModel}</span>
             </div>
             <div className="flex items-center gap-2">
               <FileCode className="h-3.5 w-3.5 text-muted-foreground" />
-              <span className="text-muted-foreground">Path Loss:</span>
+              <span className="text-muted-foreground">路径损耗:</span>
               <span className="font-mono font-semibold">{config.pathLossModel} n={config.pathLossExponent}</span>
             </div>
             <div className="flex items-center gap-2">
               <Radio className="h-3.5 w-3.5 text-muted-foreground" />
-              <span className="text-muted-foreground">Rate Ctrl:</span>
+              <span className="text-muted-foreground">速率控制:</span>
               <span className="font-mono font-semibold">{config.rateControl}</span>
             </div>
           </div>
@@ -124,12 +124,12 @@ export function ControlPanel({ status, config, onStart, onStop }: ControlPanelPr
           <Separator />
 
           <div className="grid grid-cols-2 gap-2 text-xs">
-            <div><span className="text-muted-foreground">Tx Power:</span> {config.txPowerStart} dBm</div>
-            <div><span className="text-muted-foreground">CCA:</span> {config.ccaThreshold} dBm</div>
-            <div><span className="text-muted-foreground">Fading:</span> {config.enableFading ? `${config.fadingModel}(M0=${config.nakagamiM0})` : 'Off'}</div>
-            <div><span className="text-muted-foreground">RTS/CTS:</span> {config.rtsCtsThreshold === 65535 ? 'Disabled' : `${config.rtsCtsThreshold}B`}</div>
-            <div><span className="text-muted-foreground">Area:</span> {config.mobilityMaxX}x{config.mobilityMaxY}m</div>
-            <div><span className="text-muted-foreground">Duration:</span> {config.simulationTime}s</div>
+            <div><span className="text-muted-foreground">发射功率:</span> {config.txPowerStart} dBm</div>
+            <div><span className="text-muted-foreground">CCA 阈值:</span> {config.ccaThreshold} dBm</div>
+            <div><span className="text-muted-foreground">衰落:</span> {config.enableFading ? `${config.fadingModel}(M0=${config.nakagamiM0})` : '关闭'}</div>
+            <div><span className="text-muted-foreground">RTS/CTS:</span> {config.rtsCtsThreshold === 65535 ? '禁用' : `${config.rtsCtsThreshold}B`}</div>
+            <div><span className="text-muted-foreground">区域:</span> {config.mobilityMaxX}x{config.mobilityMaxY}m</div>
+            <div><span className="text-muted-foreground">时长:</span> {config.simulationTime}s</div>
           </div>
         </CardContent>
       </Card>
@@ -137,20 +137,20 @@ export function ControlPanel({ status, config, onStart, onStop }: ControlPanelPr
       {/* Quick Actions */}
       <Card>
         <CardHeader className="pb-2">
-          <CardTitle className="text-sm">Quick Actions</CardTitle>
+          <CardTitle className="text-sm">快捷操作</CardTitle>
         </CardHeader>
         <CardContent className="space-y-2">
           <Button variant="outline" className="w-full justify-start" disabled={!status.running}>
             <RotateCw className="h-4 w-4 mr-2" />
-            Restart All Nodes
+            重启所有节点
           </Button>
           <Button variant="outline" className="w-full justify-start" disabled={!status.running}>
             <Wifi className="h-4 w-4 mr-2" />
-            Run iperf3 Test
+            运行 iperf3 测试
           </Button>
           <Button variant="outline" className="w-full justify-start" disabled={!status.running}>
             <Route className="h-4 w-4 mr-2" />
-            Traceroute Random Pair
+            随机节点 Traceroute
           </Button>
         </CardContent>
       </Card>
