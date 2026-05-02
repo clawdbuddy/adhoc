@@ -116,6 +116,7 @@ class Session:
     async def stop(self) -> None:
         with self._lock:
             sim, docker_mgr, tele, specs = self.sim, self.docker_mgr, self.telemetry, self.specs
+            cfg = self.config
             self.sim = self.docker_mgr = self.telemetry = None
             self.specs = []
 
@@ -125,7 +126,9 @@ class Session:
             sim.stop()
         if docker_mgr is not None:
             docker_mgr.stop_all()
-        teardown(len(specs))
+        # 用配置中的 n_nodes 而不是实际启动的容器数，
+        # 确保 ns-3 创建的所有 tap 接口都被清理
+        teardown(cfg.n_nodes)
 
     # ---------------------------------------------------------- 访问器
     @property

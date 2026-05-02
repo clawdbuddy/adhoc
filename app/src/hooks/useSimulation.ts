@@ -53,6 +53,7 @@ export function useSimulation(nNodes: number) {
   const [logs, setLogs] = useState<string[]>([]);
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const connectWsRef = useRef<(() => void) | null>(null);
 
   const addLog = useCallback((msg: string) => {
     setLogs(prev => [msg, ...prev].slice(0, 500));
@@ -76,7 +77,7 @@ export function useSimulation(nNodes: number) {
     ws.onclose = () => {
       wsRef.current = null;
       addLog(`[ws] closed; reconnecting in 3s`);
-      reconnectTimerRef.current = setTimeout(connectWs, 3000);
+      reconnectTimerRef.current = setTimeout(() => connectWsRef.current?.(), 3000);
     };
     ws.onmessage = (ev: MessageEvent) => {
       try {
@@ -89,6 +90,11 @@ export function useSimulation(nNodes: number) {
       }
     };
   }, [addLog, nNodes]);
+
+  // 保持 ref 同步，避免 onclose 闭包引用 stale 的 connectWs
+  useEffect(() => {
+    connectWsRef.current = connectWs;
+  }, [connectWs]);
 
   useEffect(() => {
     connectWs();

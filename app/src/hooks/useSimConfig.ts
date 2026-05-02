@@ -53,7 +53,7 @@ export function useSimConfig() {
       if (!line) return;
       const eq = line.indexOf('=');
       if (eq === -1) return;
-      let key = line.substring(0, eq).trim();
+      const key = line.substring(0, eq).trim();
       let val = line.substring(eq + 1).trim();
       val = val.replace(/^["']|["']$/g, '');
       const num = Number(val);
