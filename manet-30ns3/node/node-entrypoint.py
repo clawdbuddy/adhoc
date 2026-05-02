@@ -30,6 +30,7 @@ import os
 import subprocess
 import sys
 import time
+from typing import List
 
 NODE_ID = os.environ.get("NODE_ID", "0")
 NODE_IP = os.environ.get("NODE_IP", "192.168.100.10")
@@ -45,7 +46,7 @@ def log(msg: str) -> None:
     print(f"[node-{NODE_ID}] {msg}", flush=True)
 
 
-def run(cmd: list[str], check: bool = False) -> subprocess.CompletedProcess:
+def run(cmd: List[str], check: bool = False) -> subprocess.CompletedProcess:
     return subprocess.run(cmd, capture_output=True, text=True, check=check)
 
 
