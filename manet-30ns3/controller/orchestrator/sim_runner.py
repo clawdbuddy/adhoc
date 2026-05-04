@@ -13,10 +13,12 @@ TapBridge 模式（UseBridge）：每个 ns-3 WifiNetDevice 在 L2 上与宿主 
 from __future__ import annotations
 
 import logging
+import math
+import queue
 import threading
 import time
 from dataclasses import dataclass, field
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 
 from .config import SimConfig
 
@@ -115,6 +117,7 @@ class SimRunner:
     def __init__(self, config: SimConfig):
         self.config = config
         self._thread: Optional[threading.Thread] = None
+        self._wall_pacer_thread: Optional[threading.Thread] = None
         self._stop_event = threading.Event()
         self._lock = threading.RLock()
         self._nodes_runtime: dict[int, NodeRuntime] = {}
@@ -124,6 +127,25 @@ class SimRunner:
         self._running = False
         self._start_time: float | None = None
         self._error: str | None = None
+        # 动态控制：线程安全命令队列 + ns-3 对象引用
+        self._command_queue: queue.Queue = queue.Queue()
+        self._nodes_container: Any = None
+        self._wifi_devices: Any = None
+        self._spectrum_channel: Any = None
+        self._propagation_loss_model: Any = None
+        self._phy_model_type: str = ""
+        # 实际使用的 MAC 模式;若 mesh 因 pybindgen 绑定缺失而 fallback,这里会变成 "adhoc"
+        self._mac_mode_actual: str = ""
+        # 运行时增删节点所需 helper（仅在 _build_and_run 完成后有效）
+        self._phy_helper: Any = None
+        self._wifi_helper: Any = None
+        self._mac_helper: Any = None
+        self._mesh_helper: Any = None
+        self._internet_stack: Any = None
+        self._ipv4_helper: Any = None
+        self._tap_bridge_helper: Any = None
+        # 当前活跃节点集合（remove 后元素被移除,但 ns-3 NodeContainer 不会缩容）
+        self._active_node_ids: set[int] = set()
 
     # ---------------------------------------------------- public lifecycle
     def start(self) -> None:
@@ -140,6 +162,13 @@ class SimRunner:
         self._running = self._thread.is_alive()
         if self._running:
             self._start_time = time.time()
+            # 启动 wall-time 触发的命令 drain + 位置快照线程,绕开 sim 时钟
+            # (实测 BestEffort + 10 节点 SpectrumWifiPhy 跑到 1/24x,sim-time
+            # 调度的命令落地会拖到 20s+,前端用户体验不可接受)
+            self._wall_pacer_thread = threading.Thread(
+                target=self._wall_pacer_loop, name="ns3-wall-pacer", daemon=True,
+            )
+            self._wall_pacer_thread.start()
 
     def stop(self, timeout: float = 5.0) -> None:
         if not self._running:
@@ -153,6 +182,9 @@ class SimRunner:
         self._stop_event.set()
         if self._thread:
             self._thread.join(timeout=timeout)
+        if self._wall_pacer_thread:
+            self._wall_pacer_thread.join(timeout=2.0)
+            self._wall_pacer_thread = None
         self._running = False
 
     @property
@@ -165,6 +197,11 @@ class SimRunner:
             return 0.0
         return time.time() - self._start_time
 
+    @property
+    def mac_mode_actual(self) -> str:
+        """实际生效的 MAC 模式;若 cfg.mac_mode='mesh' 但绑定缺失,返回 'adhoc-fallback'。"""
+        return self._mac_mode_actual
+
     # ------------------------------------------------- public snapshots
     def snapshot_nodes(self) -> list[NodeRuntime]:
         with self._lock:
@@ -173,6 +210,53 @@ class SimRunner:
     def snapshot_flows(self) -> list[FlowRuntime]:
         with self._lock:
             return [FlowRuntime(**f.__dict__) for f in self._flows_runtime.values()]
+
+    def find_path(self, src_id: int, dst_id: int) -> list[int] | None:
+        """基于当前邻居图（位置 + range_target_m）做 BFS,返回 src→dst 的最少跳数路径。
+
+        返回的列表首元素 = src_id,末元素 = dst_id;若不连通返回 None。
+        与 ns-3 实际 HWMP/AODV 路由可能不一致——这里只反映"几何上谁能听到谁"的拓扑层结果,
+        但与 mesh L2 多跳能否成功有强相关性,适合给前端做拓扑可视化。
+        """
+        with self._lock:
+            if src_id == dst_id:
+                return [src_id]
+            if src_id not in self._nodes_runtime or dst_id not in self._nodes_runtime:
+                return None
+            # BFS
+            visited = {src_id}
+            parent: dict[int, int] = {}
+            queue_bfs = [src_id]
+            found = False
+            while queue_bfs:
+                cur = queue_bfs.pop(0)
+                if cur == dst_id:
+                    found = True
+                    break
+                cur_node = self._nodes_runtime.get(cur)
+                if not cur_node:
+                    continue
+                for nb in cur_node.neighbors:
+                    if nb in visited:
+                        continue
+                    visited.add(nb)
+                    parent[nb] = cur
+                    if nb == dst_id:
+                        found = True
+                        queue_bfs = []
+                        break
+                    queue_bfs.append(nb)
+            if not found:
+                return None
+            # 回溯
+            path = [dst_id]
+            while path[-1] != src_id:
+                p = parent.get(path[-1])
+                if p is None:
+                    return None
+                path.append(p)
+            path.reverse()
+            return path
 
     # =================================================================== private
     def _run(self) -> None:
@@ -214,9 +298,13 @@ class SimRunner:
         # phy_model="yans" 维持原 Yans 路径（向后兼容）。两者都通过 Friis 把传播
         # 损耗钉死在 cfg.frequency_mhz，保证 4 km LOS 物理预算与 UHF 一致。
         if cfg.phy_model == "spectrum":
-            phy = self._build_spectrum_phy(ns, cfg)
+            phy, spec_chan, loss = self._build_spectrum_phy(ns, cfg)
+            self._spectrum_channel = spec_chan
+            self._propagation_loss_model = loss
+            self._phy_model_type = "spectrum"
         else:
             phy = self._build_yans_phy(ns, cfg)
+            self._phy_model_type = "yans"
         phy.Set("TxPowerStart", ns.core.DoubleValue(cfg.tx_power_start))
         phy.Set("TxPowerEnd", ns.core.DoubleValue(cfg.tx_power_end))
         phy.Set("TxPowerLevels", ns.core.UintegerValue(cfg.tx_power_levels))
@@ -242,12 +330,17 @@ class SimRunner:
                 "Ssid", ns.wifi.SsidValue(ns.wifi.Ssid(cfg.ssid)),
             )
             devices = wifi.Install(phy, mac, nodes)
+            self._mac_mode_actual = "adhoc"
 
         # 6. Mobility
         self._install_mobility(ns, cfg, nodes)
 
         # 7. Internet stack + routing
         self._install_routing(ns, cfg, nodes)
+
+        # 保存 ns-3 对象引用供动态控制使用
+        self._nodes_container = nodes
+        self._wifi_devices = devices
 
         # 8. IP addresses (192.168.100.10 + i, /24)
         ipv4 = ns.internet.Ipv4AddressHelper()
@@ -308,12 +401,14 @@ class SimRunner:
         phy.SetChannel(ch.Create())
         return phy
 
-    def _build_spectrum_phy(self, ns: Any, cfg: SimConfig) -> Any:
+    def _build_spectrum_phy(self, ns: Any, cfg: SimConfig) -> tuple[Any, Any, Any | None]:
         """SpectrumWifiPhy + MultiModelSpectrumChannel。
 
         Friis 路径损耗的 Frequency 属性被钉到 cfg.frequency_mhz（默认 590 MHz），
         使距离-衰减曲线与 UHF 物理一致；ns-3 内部 802.11a 5 GHz 的频道号只是
         载波/调制配置，不影响传播预算。
+
+        返回 (phy_helper, spectrum_channel, path_loss_model) 三元组，供动态控制保存引用。
         """
         spec_chan = ns.spectrum.MultiModelSpectrumChannel()
 
@@ -347,7 +442,7 @@ class SimRunner:
             "SpectrumWifiPhy: 中心频率 %.0f MHz / 带宽 %d MHz / 视距目标 %.0f m",
             cfg.frequency_mhz, cfg.channel_width_mhz, cfg.range_target_m,
         )
-        return phy
+        return phy, spec_chan, loss
 
     @staticmethod
     def _make_path_loss_object(ns: Any, cfg: SimConfig) -> Any | None:
@@ -436,7 +531,10 @@ class SimRunner:
         """
         mesh_helper = ns.mesh.MeshHelper.Default()
         if not hasattr(mesh_helper, "Install"):
-            log.warning("MeshHelper.Install 在 pybindgen 绑定中缺失，降级为 adhoc")
+            log.warning(
+                "MeshHelper.Install 在 pybindgen 绑定中缺失,降级为 adhoc(L2 多跳由 ns-3 mesh 转发的语义将丢失,跨多跳的容器流量需要容器内额外路由协议)"
+            )
+            self._mac_mode_actual = "adhoc-fallback"
             mac = ns.wifi.WifiMacHelper()
             mac.SetType(
                 "ns3::AdhocWifiMac",
@@ -456,6 +554,7 @@ class SimRunner:
             "ControlMode", ns.core.StringValue(cfg.data_rate),
         )
         devices = mesh_helper.Install(phy, nodes)
+        self._mac_mode_actual = "mesh"
         log.info(
             "Mesh (802.11s/HWMP) installed on %d 节点，data_rate=%s",
             cfg.n_nodes, cfg.data_rate,
@@ -601,24 +700,158 @@ class SimRunner:
 
         stack.Install(nodes)
 
+    # ------------------------------------------------- dynamic control
+    def _inject_command(self, fn: Callable[[], None]) -> None:
+        """将命令闭包放入队列，由 ns-3 线程在下一 tick 中执行。"""
+        self._command_queue.put(fn)
+
+    def set_node_position(self, node_id: int, x: float, y: float, z: float = 0.0) -> None:
+        """将节点位置跃迁到指定坐标（线程安全）。"""
+        def _do():
+            ns = self._ns
+            if ns is None or self._nodes_container is None:
+                return
+            if node_id >= self.config.n_nodes:
+                log.warning("set_node_position: node_id %d out of range", node_id)
+                return
+            node = self._nodes_container.Get(node_id)
+            mm = node.GetObject(ns.mobility.MobilityModel.GetTypeId())
+            if mm:
+                mm.SetPosition(ns.core.Vector(x, y, z))
+                log.info("node-%d position set to (%.1f, %.1f, %.1f)", node_id, x, y, z)
+        self._inject_command(_do)
+
+    def set_tx_power(self, node_id: int, dbm: float) -> None:
+        """修改指定节点的发射功率（线程安全）。"""
+        def _do():
+            ns = self._ns
+            if ns is None or self._wifi_devices is None:
+                return
+            if node_id >= self.config.n_nodes:
+                log.warning("set_tx_power: node_id %d out of range", node_id)
+                return
+            device = self._wifi_devices.Get(node_id)
+            phy = device.GetPhy()
+            if hasattr(phy, "SetAttribute"):
+                phy.SetAttribute("TxPowerStart", ns.core.DoubleValue(dbm))
+                phy.SetAttribute("TxPowerEnd", ns.core.DoubleValue(dbm))
+                log.info("node-%d tx power set to %.1f dBm", node_id, dbm)
+        self._inject_command(_do)
+
+    def set_rx_sensitivity(self, node_id: int, dbm: float) -> None:
+        """修改指定节点的接收灵敏度（线程安全）。"""
+        def _do():
+            ns = self._ns
+            if ns is None or self._wifi_devices is None:
+                return
+            if node_id >= self.config.n_nodes:
+                log.warning("set_rx_sensitivity: node_id %d out of range", node_id)
+                return
+            device = self._wifi_devices.Get(node_id)
+            phy = device.GetPhy()
+            if hasattr(phy, "SetAttribute"):
+                phy.SetAttribute("RxSensitivity", ns.core.DoubleValue(dbm))
+                log.info("node-%d rx sensitivity set to %.1f dBm", node_id, dbm)
+        self._inject_command(_do)
+
+    def set_path_loss_exponent(self, exponent: float) -> None:
+        """修改全局路径损耗指数（仅 LogDistance 模型，线程安全）。
+
+        必须先校验 propagation_loss_model 是否为 LogDistance：其它模型(如 Friis)
+        没有 Exponent 属性,SetAttribute 会触发 ns-3 NS_FATAL_ERROR → std::terminate,
+        Python try/except 无法捕获,uvicorn 会被 docker 重启。
+        """
+        def _do():
+            if self._propagation_loss_model is None:
+                log.warning("no propagation loss model reference; cannot change exponent")
+                return
+            model_name = str(self._propagation_loss_model.GetInstanceTypeId().GetName())
+            if "LogDistance" not in model_name:
+                log.warning(
+                    "current model is %s, not LogDistance; set_path_loss_exponent has no effect (要改请重启仿真并选择 LogDistance 路径损耗模型)",
+                    model_name,
+                )
+                return
+            self._propagation_loss_model.SetAttribute(
+                "Exponent", self._ns.core.DoubleValue(exponent)
+            )
+            log.info("path loss exponent set to %.2f", exponent)
+        self._inject_command(_do)
+
+    def set_frequency(self, mhz: int) -> None:
+        """修改全局中心频率（线程安全）。
+
+        SpectrumWifiPhy 的 Frequency 属性是 INITIAL_VALUE 类型,运行时不可设置;
+        YansWifiPhy 同理。因此本方法只在 Friis/TwoRayGround 路径损耗模型上调整
+        Frequency(那是真正参与传播预算计算的字段),PHY 端的载波/调制保持不动。
+        """
+        def _do():
+            ns = self._ns
+            freq_hz = float(mhz) * 1e6
+            if self._propagation_loss_model is None:
+                log.warning("no propagation loss model reference; cannot change frequency")
+                return
+            model_name = str(self._propagation_loss_model.GetInstanceTypeId().GetName())
+            if "Friis" not in model_name and "TwoRay" not in model_name:
+                log.warning(
+                    "current model %s does not have Frequency attribute; set_frequency has no effect",
+                    model_name,
+                )
+                return
+            self._propagation_loss_model.SetAttribute(
+                "Frequency", ns.core.DoubleValue(freq_hz)
+            )
+            log.info(
+                "propagation-loss frequency set to %d MHz (%.0f Hz); PHY 载波保持不动,如需重置 802.11 频道请重启仿真",
+                mhz, freq_hz,
+            )
+        self._inject_command(_do)
+
+    def set_channel_width(self, mhz: int) -> None:
+        """修改全局信道宽度（线程安全）。
+
+        SpectrumWifiPhy 与 YansWifiPhy 的 ChannelWidth 都不允许运行时设置(都是
+        INITIAL_VALUE)。本方法只 warning,提示用户重启仿真才能生效;直接调
+        SetAttribute 会 NS_FATAL_ERROR 把 uvicorn 杀掉。
+        """
+        def _do():
+            log.warning(
+                "channel width 改为 %d MHz 需要重启仿真才能生效(%s 不支持运行时修改)",
+                mhz, self._phy_model_type or "PHY",
+            )
+        self._inject_command(_do)
+
+    def set_range_target(self, meters: float) -> None:
+        """修改 Range 传播模型的最大距离（线程安全）。"""
+        def _do():
+            if self._propagation_loss_model is None:
+                log.warning("no propagation loss model reference; cannot change range")
+                return
+            model_name = str(self._propagation_loss_model.GetInstanceTypeId().GetName())
+            if "Range" not in model_name:
+                log.warning(
+                    "current model is %s, not Range; set_range_target has no effect",
+                    model_name,
+                )
+                return
+            self._propagation_loss_model.SetAttribute(
+                "MaxRange", self._ns.core.DoubleValue(meters)
+            )
+            log.info("range target set to %.0f m", meters)
+        self._inject_command(_do)
+
     # ------------------------------------------------- in-simulator periodic
     def _schedule_periodic(self, ns: Any, nodes: Any, period_s: float) -> None:
-        """在仿真器内调度周期性 1 Hz 回调，将位置和 FlowMonitor 计数器快照写入运行时状态。"""
+        """在仿真器内调度周期性回调,刷新 FlowMonitor 计数器。
+
+        位置快照与命令队列由 `_wall_pacer_loop` 在 wall-time 100ms 周期执行,
+        因为实时仿真器在重负载时 ns-3 sim_t 远落后于 wall_t (实测 1/24x),
+        若把这些放在 sim-time tick 里,前端拖拽 → 落地的延迟可达 20s+。
+        """
         runner = self
 
         def _tick():
             try:
-                # positions
-                with runner._lock:
-                    for i in range(runner.config.n_nodes):
-                        node = nodes.Get(i)
-                        mm = node.GetObject(ns.mobility.MobilityModel.GetTypeId())
-                        if mm:
-                            pos = mm.GetPosition()
-                            nr = runner._nodes_runtime.setdefault(i, NodeRuntime(id=i))
-                            nr.x = float(pos.x)
-                            nr.y = float(pos.y)
-                # flows
                 if runner._fm is not None:
                     runner._fm.CheckForLostPackets()
                     stats = runner._fm.GetFlowStats()
@@ -659,3 +892,74 @@ class SimRunner:
                     ns.core.Simulator.Schedule(ns.core.Seconds(period_s), _tick)
 
         ns.core.Simulator.Schedule(ns.core.Seconds(period_s), _tick)
+
+    def _wall_pacer_loop(self) -> None:
+        """wall-time 100ms 周期：drain 命令队列 + 刷新节点位置快照。
+
+        独立于 ns-3 sim 时钟,避免 sim 实时倍率 (BestEffort 下重负载会跌到 1/20x)
+        把命令落地与位置回读拖到 20s+。
+
+        thread-safety 注记:
+        - `mm.SetPosition` / `mm.GetPosition` 在 ConstantPositionMobilityModel 下是
+          单一字段读写,且 CPython GIL 下 Python 调用绑定时序列化执行,与 ns-3 主循环
+          的 C++ 段并发只在 m_position 上读写——x86 对齐写是原子的,最坏情况是
+          下一帧出现一次撕裂,可接受。
+        - 对 RandomWalk/GaussMarkov 等带内部 schedule 的模型,从外部线程改 position
+          仍存在风险;tactical 用 grid (ConstantPosition) 路径已规避。
+        """
+        while not self._stop_event.is_set():
+            time.sleep(0.1)
+            ns = self._ns
+            if not self._running or ns is None or self._nodes_container is None:
+                continue
+            try:
+                # 1. 排空命令队列
+                while not self._command_queue.empty():
+                    try:
+                        cmd = self._command_queue.get_nowait()
+                        cmd()
+                    except Exception as e:  # noqa: BLE001
+                        log.warning("dynamic command failed: %s", e)
+                # 2. 刷新位置快照 + 邻居 + tap 接口计数器
+                with self._lock:
+                    n_nodes = self.config.n_nodes
+                    tap_prefix = self.config.tap_prefix
+                    max_range = self.config.range_target_m
+                    # 2a. 位置
+                    for i in range(n_nodes):
+                        node = self._nodes_container.Get(i)
+                        mm = node.GetObject(ns.mobility.MobilityModel.GetTypeId())
+                        if mm:
+                            pos = mm.GetPosition()
+                            nr = self._nodes_runtime.setdefault(i, NodeRuntime(id=i))
+                            nr.x = float(pos.x)
+                            nr.y = float(pos.y)
+                    # 2b. 邻居(按距离 + range_target_m 判定)
+                    for i in range(n_nodes):
+                        ni = self._nodes_runtime.get(i)
+                        if not ni:
+                            continue
+                        neighbors = []
+                        for j in range(n_nodes):
+                            if i == j:
+                                continue
+                            nj = self._nodes_runtime.get(j)
+                            if not nj:
+                                continue
+                            if math.hypot(ni.x - nj.x, ni.y - nj.y) <= max_range:
+                                neighbors.append(j)
+                        ni.neighbors = neighbors
+                    # 2c. tap 接口 RX/TX(真实容器流量,FlowMonitor 看不到)
+                    for i in range(n_nodes):
+                        nr = self._nodes_runtime.get(i)
+                        if not nr:
+                            continue
+                        try:
+                            with open(f"/sys/class/net/{tap_prefix}{i}/statistics/rx_packets") as fh:
+                                nr.rx_packets = int(fh.read().strip())
+                            with open(f"/sys/class/net/{tap_prefix}{i}/statistics/tx_packets") as fh:
+                                nr.tx_packets = int(fh.read().strip())
+                        except Exception:  # noqa: BLE001
+                            pass
+            except Exception as e:  # noqa: BLE001
+                log.warning("wall pacer iteration failed: %s", e)

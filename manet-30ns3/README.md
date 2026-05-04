@@ -135,7 +135,7 @@ curl -X POST localhost:8000/api/sim/stop
 
 ### 自定义配置
 
-通过 REST 传入 `config` 字段即可覆盖任意参数（命名采用 camelCase，与 `app/src/types/config.ts` 一致）：
+通过 REST 传入 `config` 字段即可覆盖任意参数（命名采用 camelCase，与 `manet-30ns3/web-manager/src/types/config.ts` 一致）：
 
 ```bash
 curl -X POST localhost:8000/api/sim/start \
@@ -180,7 +180,7 @@ curl -X PUT localhost:8000/api/config \
 
 ## 完整参数参考
 
-> 参数权威源在 `controller/orchestrator/config.py:SimConfig`（Pydantic v2 模型，camelCase 别名）；`app/src/types/config.ts` 与之对齐。
+> 参数权威源在 `controller/orchestrator/config.py:SimConfig`（Pydantic v2 模型，camelCase 别名）；`manet-30ns3/web-manager/src/types/config.ts` 与之对齐。
 
 ### 通用参数
 
@@ -324,7 +324,7 @@ manet-30ns3/
 │  └─ api/                     #   FastAPI 应用 + REST 路由 + /ws/telemetry
 ├─ ns3-controller/             # 控制器 Dockerfile（含 NS-3.45 + Python 绑定）
 ├─ node/                       # 节点 Dockerfile + node-entrypoint.py
-├─ web-manager/                # 预构建的 React 静态包（由 ../app 产出）
+├─ web-manager/                # React 19 + Vite + TS 源码 + 由 `npm run build` 产出的 dist/
 ├─ docker-compose.yml          # 控制器 + 节点镜像构建目标
 │
 └─ ns3-code/                   # ⚠ 旧版 C++ scratch 程序（仅作历史参考）

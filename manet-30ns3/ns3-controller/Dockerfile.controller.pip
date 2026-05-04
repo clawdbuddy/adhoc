@@ -63,9 +63,10 @@ RUN timeout 120 python3 -c "from ns import ns; \
 
 # --- 5. 控制器代码 + UI 静态资源 ---
 # 构建上下文必须是 manet-30ns3/(项目根目录),由 docker-compose.yml 的 context 指定。
+# 构建前需在 web-manager/ 目录运行 `npm install && npm run build` 产出 dist/。
 WORKDIR /app
 COPY controller /app/controller
-COPY web-manager /app/dist
+COPY web-manager/dist /app/dist
 
 ENV MANET_WEB_DIR=/app/dist
 EXPOSE 8000

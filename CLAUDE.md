@@ -8,7 +8,6 @@
 
 ```
 Kimi_Agent_MANET/
-├── app/                       # Web 管理面板的 React 19 + Vite + TS 源码
 └── manet-30ns3/               # NS-3 + Docker 的 MANET 仿真系统
     ├── controller/              # Python 编排层 + FastAPI 控制平面
     │   ├── orchestrator/          # config / netns / docker_mgr / sim_runner / telemetry
@@ -16,23 +15,22 @@ Kimi_Agent_MANET/
     ├── ns3-controller/          # 用于构建带 Python 绑定的 NS-3.45 的 Dockerfile
     │                            # 同时把 controller 包与 web 静态包打入镜像
     ├── node/                    # Dockerfile.node + node-entrypoint.py，MANET 节点容器（Python 入口）
-    ├── web-manager/             # 预构建的静态包（由 `app/` 产出），由 FastAPI 直接托管
-    └── ns3-code/                # 旧版 C++ scratch 程序（仅作参考与回归对比保留）
+    └── web-manager/             # React 19 + Vite + TS 源码 + 由 `npm run build` 产出的 dist/
 ```
 
-`app/` 是管理面板的**源码**。`manet-30ns3/web-manager/` 存放该 UI 的**预构建**静态包；FastAPI 把它挂到 `/`，因此同一个 `:8000` 源同时提供 API 与 SPA。修改 UI 行为时：先改 `app/`，执行 `npm run build`，然后把 `app/dist/*` 复制到 `manet-30ns3/web-manager/`，再重新构建 controller 镜像。
+`manet-30ns3/web-manager/` 同时存放 UI 源码与构建产物。镜像构建时直接 `COPY web-manager/dist /app/dist`，FastAPI 在 `:8000` 同时托管 SPA 与 API。修改 UI 时：在 `manet-30ns3/web-manager/` 下执行 `npm run build`（产出本地 `dist/`），然后 `docker compose build ns3-controller`——不再需要把构建产物手工 cp 到独立目录。
 
 旧版 C++ 流水线（`ns3-code/manet-30nodes.cc` + `setup-network.sh` + `start-simulation.sh` + `web-manager-start.sh`）已被 Python 控制器**取代**并**已删除**。节点容器入口也从 shell 脚本（`node-entrypoint.sh`）全面迁移到 Python（`node-entrypoint.py`）。运行时唯一权威实现是 `controller/` + `node-entrypoint.py`。
 
 ## 常用命令
 
-### React 应用 (`app/`)
+### Web 管理面板 (`manet-30ns3/web-manager/`)
 
 ```bash
-cd app
+cd manet-30ns3/web-manager
 npm install
 npm run dev       # Vite 开发服务器，http://localhost:3000
-npm run build     # tsc -b && vite build  → 生成 dist/
+npm run build     # tsc -b && vite build  → 生成同目录下 dist/
 npm run lint      # eslint .
 npm run preview   # 本地预览生产构建
 ```
@@ -64,8 +62,8 @@ curl -X POST localhost:8000/api/sim/start \
 curl -s localhost:8000/api/sim/status
 curl -X POST localhost:8000/api/sim/stop
 
-# 4. 打开 UI：http://localhost:8000/（FastAPI 托管 manet-30ns3/web-manager/）。
-#    或在 dev 模式下：cd app && npm run dev → http://localhost:3000
+# 4. 打开 UI：http://localhost:8000/（FastAPI 托管 manet-30ns3/web-manager/dist/）。
+#    或在 dev 模式下：cd manet-30ns3/web-manager && npm run dev → http://localhost:3000
 #    （Vite 反代 /api 与 /ws）。
 
 # 5. 全部下线（控制器的 /api/sim/stop 已经会清理 bridge / veth / TAP 与节点容器；
@@ -75,7 +73,7 @@ docker compose down
 
 > **注意**：控制器会通过 `pyroute2` 修改**宿主网络状态**（创建 `br-ns3`、`veth{i}`、`tap-{i}`，并把 veth 移入容器 netns），需要 `--privileged`、`network_mode: host` 以及 Docker socket 访问权限。它**只能在 Linux 下运行**，且需要内核加载 `tun` / `tap` / `bridge` 模块——**无法在本仓库所在的 macOS 主机上跑**。要实际验证，请把仓库拷贝/克隆到 x86 Ubuntu 20.04（或等价 Linux VM）上再运行。
 
-> **UI 包**：`manet-30ns3/web-manager/` 是构建时打入控制器镜像的静态包。修改 `app/` 源码后，必须先 `cd app && npm run build`，再把 `dist/*` 复制到 `manet-30ns3/web-manager/`，**然后**才执行 `docker compose build ns3-controller`——否则正在运行的控制器会继续提供旧版本的前端。
+> **UI 包**：UI 源码与构建产物都在 `manet-30ns3/web-manager/`。修改后必须先在该目录执行 `npm run build`，再 `docker compose build ns3-controller`，否则镜像里仍然是旧版本前端。
 
 ## 架构说明
 
@@ -93,7 +91,7 @@ docker compose down
 
 ### FastAPI 控制平面 (`controller/`)
 
-控制器镜像（`ns3-controller/Dockerfile.controller`）打包了启用 `--enable-python-bindings` 的 NS-3.45、`controller/` Python 包以及预构建的 `web-manager/` 前端。镜像启动 `uvicorn controller.api.main:app`，监听 8000 端口。
+控制器镜像（`ns3-controller/Dockerfile.controller`）打包了启用 `--enable-python-bindings` 的 NS-3.45、`controller/` Python 包以及在 `manet-30ns3/web-manager/dist/` 下的构建产物。镜像启动 `uvicorn controller.api.main:app`，监听 8000 端口。
 
 模块布局：
 
@@ -120,9 +118,9 @@ controller/
 
 `controller/orchestrator/config.py` 是仿真参数的唯一权威源。
 
-- **`SimConfig`** 是 Pydantic v2 模型，使用 `alias_generator=to_camel, populate_by_name=True`。每个字段都有默认值，与 `PRESETS["default"]` 一致。线上线下交互均使用 camelCase（与 `app/src/types/config.ts` 对齐），Python 内部使用 snake_case。约 80 个字段覆盖 PHY / 传播 / MAC / 路由 / 移动 / 跟踪。
+- **`SimConfig`** 是 Pydantic v2 模型，使用 `alias_generator=to_camel, populate_by_name=True`。每个字段都有默认值，与 `PRESETS["default"]` 一致。线上线下交互均使用 camelCase（与 `manet-30ns3/web-manager/src/types/config.ts` 对齐），Python 内部使用 snake_case。约 80 个字段覆盖 PHY / 传播 / MAC / 路由 / 移动 / 跟踪。
 - **优先级在代码里显式实现**：`load_config(file_path, overrides, preset)` 的次序为 显式 `overrides`（REST body）> `.conf` 文件 > 选定的 `preset` > 内置默认值。这与旧版 `manet-30nodes.cc` **正好相反**——旧版让 `.conf` 反过来覆盖 CLI 参数（README 当年写错了次序）。Python 加载器是与文档一致的。
-- **旧版 `.conf` 文件**由 `parse_conf_file(path)` 解析，接受 React `useSimConfig.exportConfig` 写出的 camelCase key，同时显式翻译两个旧别名 `pcapTracing → pcap` 与 `asciiTracing → ascii`（这两个 key 在原 C++ 解析器里被静默丢弃，Python 加载器予以纠正）。新增可调参数的步骤：在 `SimConfig` 增加字段、在 `sim_runner.py` 把参数串起来、（可选）更新 `PRESETS`。React UI 类型（`app/src/types/config.ts`）目前需手工保持一致；后续可考虑由 OpenAPI 自动生成 TS 类型。
+- **旧版 `.conf` 文件**由 `parse_conf_file(path)` 解析，接受 React `useSimConfig.exportConfig` 写出的 camelCase key，同时显式翻译两个旧别名 `pcapTracing → pcap` 与 `asciiTracing → ascii`（这两个 key 在原 C++ 解析器里被静默丢弃，Python 加载器予以纠正）。新增可调参数的步骤：在 `SimConfig` 增加字段、在 `sim_runner.py` 把参数串起来、（可选）更新 `PRESETS`。React UI 类型（`manet-30ns3/web-manager/src/types/config.ts`）目前需手工保持一致；后续可考虑由 OpenAPI 自动生成 TS 类型。
 - 预设 `default`、`urban`、`rural`、`debug` 定义在 `PRESETS` 中，并通过 `GET /api/sim/presets` 暴露。
 
 ### React 应用结构
@@ -156,7 +154,7 @@ sudo bash setup-controller.sh
 
 # 2. 启动
 conda activate manet-controller
-PYTHONPATH=./controller MANET_WEB_DIR=./web-manager \
+PYTHONPATH=./controller MANET_WEB_DIR=./web-manager/dist \
   python3 -m uvicorn controller.api.main:app --host 0.0.0.0 --port 8000
 
 # 或使用 systemd
@@ -220,8 +218,8 @@ ip link | grep -E 'br-ns3|tap-|veth' || echo "clean"   # 期望输出 "clean"
 ## 工作笔记
 
 - `manet-30ns3/` 既是工作副本也是分发副本：仓库根是 git 仓库，但 `manet-30ns3.tar.gz` 是该子目录打包出的规范分发产物，不要把它当作权威源。
-- `app/src/components/ui/` 由 shadcn 生成，**不要**手工修改原子组件，定制时优先在 `src/sections/` 中通过组合方式实现。
-- `manet-30ns3/skills/webapp-building/` 是用于初始化 `app/` 的 skill 脚手架，仅供参考，不属于运行时。
+- `manet-30ns3/web-manager/src/components/ui/` 由 shadcn 生成，**不要**手工修改原子组件，定制时优先在 `src/sections/` 中通过组合方式实现。
+- `manet-30ns3/skills/webapp-building/` 是用于初始化前端面板源码的 skill 脚手架，仅供参考，不属于运行时。
 - 持久化的设计文档位于 `/Users/binnary/.claude/plans/melodic-puzzling-pebble.md`，其中 §3 的需求溯源表（R1–R8）可用于事后审计。
 
 ## 已知问题与改进计划
@@ -237,7 +235,7 @@ ip link | grep -E 'br-ns3|tap-|veth' || echo "clean"   # 期望输出 "clean"
 
 ### 2. 前端类型需手工与后端对齐（中优先级）
 
-`app/src/types/config.ts` 与 `controller/orchestrator/config.py` 之间没有自动生成机制。新增字段时需要两边手工修改。
+`manet-30ns3/web-manager/src/types/config.ts` 与 `controller/orchestrator/config.py` 之间没有自动生成机制。新增字段时需要两边手工修改。
 
 **解决步骤：**
 1. 短期：维护一份 CHECKLIST，每次新增字段时两边同步修改。

@@ -7,7 +7,6 @@ yarn-error.log*
 .yarn/
 
 # 构建产物
-app/dist/
 **/build/
 **/__pycache__/
 *.pyc
@@ -36,6 +35,14 @@ manet-30ns3/*.tr
 # Docker / ccache
 .ccache/
 *.tmp
+
+# PyInstaller 打包输出
+manet-30ns3/dist/
+manet-30ns3/build/
+manet-30ns3/*.spec
+
+# 运行时数据（用户配置 / 仿真输出）
+manet-30ns3/config/user_settings.conf
 
 # 日志
 *.log

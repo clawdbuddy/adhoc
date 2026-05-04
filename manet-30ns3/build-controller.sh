@@ -17,6 +17,10 @@ if ! command -v conda &>/dev/null; then
     error "未找到 conda。请先运行 setup-controller.sh 或手动安装 miniconda"
 fi
 
+if [[ ! -d "${SCRIPT_DIR}/web-manager/dist" ]]; then
+    error "未找到 web-manager/dist;请先 cd web-manager && npm install && npm run build"
+fi
+
 source "$(conda info --base)/etc/profile.d/conda.sh"
 conda activate "${ENV_NAME}"
 
@@ -38,7 +42,7 @@ log "开始 PyInstaller 打包..."
 pyinstaller \
     --onedir \
     --name manet-controller \
-    --add-data "${SCRIPT_DIR}/web-manager:web-manager" \
+    --add-data "${SCRIPT_DIR}/web-manager/dist:web-manager/dist" \
     --hidden-import=ns.core \
     --hidden-import=ns.network \
     --hidden-import=ns.internet \

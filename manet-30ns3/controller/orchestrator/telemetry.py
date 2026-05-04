@@ -1,6 +1,6 @@
 """遥测：将 SimRunner + DockerMgr 快照打包为线格式帧。
 
-帧格式（camelCase）与 app/src/types/config.ts 中的 NodeStatus / FlowStats 对齐，
+帧格式（camelCase）与 manet-30ns3/web-manager/src/types/config.ts 中的 NodeStatus / FlowStats 对齐，
 因此 React 前端类型无需改动。
 """
 from __future__ import annotations
@@ -47,6 +47,49 @@ def _flow_frame(flow) -> dict[str, Any]:
     }
 
 
+def _aggregate_pairs(
+    flows: list, ip_to_id: dict[str, int]
+) -> list[dict[str, Any]]:
+    """把 FlowMonitor 的 5-tuple 流按 (srcId, dstId) 聚合,丢掉无法映射到节点的流。
+
+    NxN 矩阵 UI 需要的是 "节点 i 给节点 j 发了多少",一对节点之间可能有多个 5-tuple
+    (TCP+UDP+ICMP 各 1 条),这里把它们求和;avgDelay 取按收到包数加权平均,
+    throughput / 各 packet 计数求和。
+    """
+    buckets: dict[tuple[int, int], dict[str, float]] = {}
+    for f in flows:
+        sid = ip_to_id.get(str(f.source))
+        did = ip_to_id.get(str(f.destination))
+        if sid is None or did is None or sid == did:
+            continue
+        key = (sid, did)
+        b = buckets.setdefault(key, {
+            "txPackets": 0, "rxPackets": 0, "lostPackets": 0,
+            "throughput": 0.0, "delaySumWeighted": 0.0, "delayWeight": 0,
+        })
+        b["txPackets"] += int(f.tx_packets)
+        b["rxPackets"] += int(f.rx_packets)
+        b["lostPackets"] += int(f.lost_packets)
+        b["throughput"] += float(f.throughput)
+        rx = int(f.rx_packets)
+        if rx > 0:
+            b["delaySumWeighted"] += float(f.avg_delay) * rx
+            b["delayWeight"] += rx
+    out: list[dict[str, Any]] = []
+    for (sid, did), b in buckets.items():
+        avg_delay = b["delaySumWeighted"] / b["delayWeight"] if b["delayWeight"] else 0.0
+        out.append({
+            "srcId": sid,
+            "dstId": did,
+            "txPackets": int(b["txPackets"]),
+            "rxPackets": int(b["rxPackets"]),
+            "lostPackets": int(b["lostPackets"]),
+            "throughput": float(b["throughput"]),
+            "avgDelay": float(avg_delay),
+        })
+    return out
+
+
 class Telemetry:
     """聚合状态为 JSON 可序列化帧；向 WebSocket 订阅者广播。"""
 
@@ -78,11 +121,15 @@ class Telemetry:
         for spec in self.specs_by_id.values():
             online = self.docker.is_running(spec.id)
             nodes_out.append(_node_frame(spec, sim_nodes.get(spec.id), online))
+        # 节点对聚合：把 5-tuple flow 折叠成 (srcId, dstId) 维度
+        ip_to_id = {spec.ip: spec.id for spec in self.specs_by_id.values()}
+        pairs_out = _aggregate_pairs(sim_flows, ip_to_id)
         return {
             "t": self.sim.elapsed,
             "running": self.sim.running,
             "nodes": nodes_out,
             "flows": [_flow_frame(f) for f in sim_flows],
+            "pairs": pairs_out,
             "ts": time.time(),
         }
 

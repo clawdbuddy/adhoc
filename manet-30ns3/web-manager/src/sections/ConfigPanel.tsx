@@ -11,14 +11,17 @@ import { Button } from '@/components/ui/button';
 import {
   STANDARDS, DATA_RATES, PHY_MODELS, PATH_LOSS_MODELS, FADING_MODELS,
   PROPAGATION_DELAYS, RATE_CONTROLS, MAC_MODES, ROUTING_PROTOCOLS,
-  MOBILITY_MODELS, GRID_LAYOUTS, RW_MODES, PRESETS,
+  MOBILITY_MODELS, GRID_LAYOUTS, RW_MODES,
 } from '@/types/config';
 import type { SimConfig } from '@/types/config';
+import { PRESET_NAMES } from '@/hooks/useSimConfig';
 import { Save, RotateCcw, Download, Upload, Radio, Wifi, Route, MapPin, BarChart3 } from 'lucide-react';
 
 interface ConfigPanelProps {
   config: SimConfig;
   activePreset: string;
+  presets: Record<string, SimConfig> | null;
+  saveStatus?: 'idle' | 'saving' | 'saved' | 'error';
   updateConfig: <K extends keyof SimConfig>(key: K, value: SimConfig[K]) => void;
   loadPreset: (name: string) => void;
   resetToDefault: () => void;
@@ -27,7 +30,7 @@ interface ConfigPanelProps {
 }
 
 export function ConfigPanel({
-  config, activePreset, updateConfig, loadPreset, resetToDefault, exportConfig, importConfig,
+  config, activePreset, presets, saveStatus, updateConfig, loadPreset, resetToDefault, exportConfig, importConfig,
 }: ConfigPanelProps) {
   const handleImport = () => {
     const input = document.createElement('input');
@@ -59,20 +62,33 @@ export function ConfigPanel({
       {/* Presets & Actions */}
       <div className="flex flex-wrap items-center gap-3">
         <span className="text-sm text-muted-foreground">预设:</span>
-        {Object.entries(PRESETS).map(([key, preset]) => (
-          <Button
-            key={key}
-            variant={activePreset === key ? 'default' : 'outline'}
-            size="sm"
-            onClick={() => loadPreset(key)}
-          >
-            {preset.name}
-          </Button>
-        ))}
+        {presets ? (
+          Object.keys(presets).map(key => (
+            <Button
+              key={key}
+              variant={activePreset === key ? 'default' : 'outline'}
+              size="sm"
+              onClick={() => loadPreset(key)}
+            >
+              {PRESET_NAMES[key] || key}
+            </Button>
+          ))
+        ) : (
+          <span className="text-xs text-muted-foreground">加载中...</span>
+        )}
         {activePreset === 'custom' && (
           <Badge variant="secondary">自定义</Badge>
         )}
         <div className="flex-1" />
+        {saveStatus === 'saving' && (
+          <Badge variant="outline" className="animate-pulse">保存中...</Badge>
+        )}
+        {saveStatus === 'saved' && (
+          <Badge variant="secondary" className="text-green-600">已保存</Badge>
+        )}
+        {saveStatus === 'error' && (
+          <Badge variant="destructive">保存失败</Badge>
+        )}
         <Button variant="outline" size="sm" onClick={handleImport}>
           <Upload className="h-4 w-4 mr-1" /> 导入
         </Button>
@@ -375,7 +391,7 @@ export function ConfigPanel({
           <Card>
             <CardHeader><CardTitle>路由协议</CardTitle></CardHeader>
             <CardContent className="space-y-6">
-              <div className="space-y-2 max-w-xs">
+              <div className="space-y-2">
                 <Label>协议</Label>
                 <Select value={config.routingProtocol} onValueChange={v => updateConfig('routingProtocol', v)}>
                   <SelectTrigger><SelectValue /></SelectTrigger>
@@ -545,7 +561,7 @@ export function ConfigPanel({
               {config.mobilityModel === 'gauss-markov' && (
                 <div className="border-t pt-4">
                   <h4 className="font-semibold mb-3">高斯-马尔可夫参数</h4>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 max-w-2xl">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div className="space-y-2">
                       <Label>Alpha (记忆系数): {config.gmAlpha.toFixed(2)}</Label>
                       <Slider min={0} max={1} step={0.05} value={[config.gmAlpha]}
@@ -616,7 +632,7 @@ export function ConfigPanel({
                   <Label htmlFor="mobtrace">移动性跟踪</Label>
                 </div>
               </div>
-              <div className="space-y-2 max-w-md">
+              <div className="space-y-2">
                 <Label>PCAP 文件名前缀</Label>
                 <Input value={config.pcapPrefix} onChange={e => updateConfig('pcapPrefix', e.target.value)} />
               </div>

@@ -6,7 +6,7 @@ from typing import Any
 from fastapi import APIRouter
 
 from controller.api.state import get_session
-from controller.orchestrator import SimConfig
+from controller.orchestrator import SimConfig, save_config_to_file
 
 router = APIRouter(prefix="/api/config", tags=["config"])
 
@@ -20,13 +20,15 @@ async def get_config() -> dict[str, Any]:
 
 @router.put("")
 async def put_config(cfg: SimConfig) -> dict[str, Any]:
-    """写入新配置；仿真运行中时拒绝修改。"""
+    """写入新配置并持久化到文件。运行中也可保存（作为下次启动用）。"""
     sess = get_session()
-    if sess.running:
+    sess.config = cfg
+    try:
+        save_config_to_file(cfg)
+    except Exception as e:
         return {
             "ok": False,
-            "reason": "仿真正在运行；请先停止再修改配置",
-            "current": sess.config.model_dump(by_alias=True),
+            "reason": f"配置已更新，但写入文件失败: {e}",
+            "config": sess.config.model_dump(by_alias=True),
         }
-    sess.config = cfg
     return {"ok": True, "config": sess.config.model_dump(by_alias=True)}

@@ -1,0 +1,175 @@
+import { useState, useCallback, useEffect, useRef } from 'react';
+import type { SimConfig } from '@/types/config';
+
+const API_BASE = '';
+
+// 极小的本地 fallback，用于 API 尚未返回前的占位。
+// 权威预设定义在后端 controller/orchestrator/config.py:PRESETS 中。
+const FALLBACK_CONFIG: SimConfig = {
+  nNodes: 6, simulationTime: 300, seed: 1, run: 1, logComponents: '',
+  standard: '80211a', phyModel: 'spectrum', frequencyMhz: 590, channelWidthMhz: 20, rangeTargetM: 4000,
+  dataRate: 'OfdmRate6Mbps',
+  txPowerStart: 30, txPowerEnd: 30, txPowerLevels: 1,
+  rxSensitivity: -92, ccaThreshold: -82, antennaGain: 3,
+  propagationDelay: 'ConstantSpeed', pathLossModel: 'FreeSpace',
+  pathLossExponent: 2.0, pathLossRefLoss: 46.6777, pathLossRefDistance: 1.0,
+  enableFading: false, fadingModel: 'Nakagami',
+  nakagamiM0: 1.5, nakagamiM1: 1.0, nakagamiM2: 0.75, nakagamiD1: 50, nakagamiD2: 100,
+  ssid: 'adhoc-30ns3', bssid: '00:00:00:00:AD:H0',
+  macMode: 'adhoc', rateControl: 'Constant', rtsCtsThreshold: 2200, fragmentationThreshold: 2200,
+  nonUnicastMode: false, beaconInterval: 100, cwMin: 15, cwMax: 1023,
+  routingProtocol: 'aodv', aodvHelloInterval: 1, aodvRreqRetries: 2,
+  aodvActiveRouteTimeout: 3, aodvDeletePeriod: 5, aodvNetDiameter: 35, aodvEnableHello: true,
+  olsrHelloInterval: 2, olsrTcInterval: 5, olsrWillingness: 7,
+  dsdvPeriodicUpdateInterval: 15, dsdvSettlingTime: 6,
+  mobilityModel: 'random-walk', mobilityMinX: 0, mobilityMaxX: 5000, mobilityMinY: 0, mobilityMaxY: 5000,
+  rwMinSpeed: 0.5, rwMaxSpeed: 3, rwDistance: 200, rwMode: 'Time', rwTime: 1,
+  gridMinX: 100, gridMinY: 100, gridDeltaX: 800, gridDeltaY: 800, gridWidth: 6, gridLayout: 'RowFirst',
+  gmAlpha: 0.85, pcap: true, ascii: false, flowMonitor: true,
+  pcapPrefix: 'manet-30nodes-adhoc', enableMobilityTrace: false,
+};
+
+// 按钮显示名映射（后端 /api/sim/presets 只返回扁平 SimConfig，没有 name 字段）
+export const PRESET_NAMES: Record<string, string> = {
+  default: '默认 / AdHoc',
+  urban: '城市密集',
+  rural: '乡村 / 开阔地带',
+  debug: '调试 / 最小配置',
+  tactical: '战术 / 10节点',
+};
+
+export function useSimConfig() {
+  const [presets, setPresets] = useState<Record<string, SimConfig> | null>(null);
+  const [ready, setReady] = useState(false);
+  const [config, setConfig] = useState<SimConfig>({ ...FALLBACK_CONFIG });
+  const [activePreset, setActivePreset] = useState<string>('default');
+  const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
+  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // 挂载时从后端加载权威预设
+  useEffect(() => {
+    fetch(`${API_BASE}/api/sim/presets`)
+      .then(r => r.json())
+      .then((data: Record<string, SimConfig>) => {
+        setPresets(data);
+        const defaultPreset = data.default;
+        if (defaultPreset) {
+          setConfig({ ...defaultPreset });
+        }
+        setReady(true);
+      })
+      .catch(() => {
+        setReady(true);
+      });
+  }, []);
+
+  const updateConfig = useCallback(<K extends keyof SimConfig>(key: K, value: SimConfig[K]) => {
+    setConfig(prev => ({ ...prev, [key]: value }));
+    setActivePreset('custom');
+  }, []);
+
+  const updatePartial = useCallback((partial: Partial<SimConfig>) => {
+    setConfig(prev => ({ ...prev, ...partial }));
+    setActivePreset('custom');
+  }, []);
+
+  const loadPreset = useCallback((presetName: string) => {
+    if (!presets) return;
+    const preset = presets[presetName];
+    if (preset) {
+      setConfig({ ...preset });
+      setActivePreset(presetName);
+    }
+  }, [presets]);
+
+  const resetToDefault = useCallback(() => {
+    if (!presets?.default) return;
+    setConfig({ ...presets.default });
+    setActivePreset('default');
+  }, [presets]);
+
+  const exportConfig = useCallback((): string => {
+    const lines: string[] = ['// NS-3 802.11s Mesh / AdHoc Simulation Configuration'];
+    (Object.keys(config) as Array<keyof SimConfig>).forEach(key => {
+      const value = config[key];
+      if (typeof value === 'boolean') {
+        lines.push(`${key} = ${value ? 'true' : 'false'}`);
+      } else if (typeof value === 'string') {
+        lines.push(`${key} = ${value}`);
+      } else {
+        lines.push(`${key} = ${value}`);
+      }
+    });
+    return lines.join('\n');
+  }, [config]);
+
+  const importConfig = useCallback((text: string) => {
+    const imported: Partial<SimConfig> = {};
+    text.split('\n').forEach(line => {
+      const cmt = line.indexOf('//');
+      if (cmt !== -1) line = line.substring(0, cmt);
+      line = line.trim();
+      if (!line) return;
+      const eq = line.indexOf('=');
+      if (eq === -1) return;
+      const key = line.substring(0, eq).trim();
+      let val = line.substring(eq + 1).trim();
+      val = val.replace(/^["']|["']$/g, '');
+      const num = Number(val);
+      if (!isNaN(num) && val !== '') {
+        (imported as Record<string, unknown>)[key] = num;
+      } else if (val === 'true' || val === 'false') {
+        (imported as Record<string, unknown>)[key] = val === 'true';
+      } else {
+        (imported as Record<string, unknown>)[key] = val;
+      }
+    });
+    setConfig(prev => ({ ...prev, ...imported }));
+    setActivePreset('custom');
+  }, []);
+
+  // ---- auto-save to backend (debounce 500ms) ----
+  const saveConfig = useCallback(async (cfg: SimConfig) => {
+    setSaveStatus('saving');
+    try {
+      const res = await fetch(`${API_BASE}/api/config`, {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(cfg),
+      });
+      if (!res.ok) {
+        throw new Error(`HTTP ${res.status}`);
+      }
+      setSaveStatus('saved');
+      setTimeout(() => setSaveStatus('idle'), 2000);
+    } catch {
+      setSaveStatus('error');
+    }
+  }, []);
+
+  useEffect(() => {
+    if (saveTimerRef.current) {
+      clearTimeout(saveTimerRef.current);
+    }
+    saveTimerRef.current = setTimeout(() => saveConfig(config), 500);
+    return () => {
+      if (saveTimerRef.current) {
+        clearTimeout(saveTimerRef.current);
+      }
+    };
+  }, [config, saveConfig]);
+
+  return {
+    config,
+    activePreset,
+    ready,
+    presets,
+    saveStatus,
+    updateConfig,
+    updatePartial,
+    loadPreset,
+    resetToDefault,
+    exportConfig,
+    importConfig,
+  };
+}

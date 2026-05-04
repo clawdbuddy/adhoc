@@ -12,7 +12,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CONTROLLER_DIR="${SCRIPT_DIR}/controller"
-WEB_DIR="${SCRIPT_DIR}/web-manager"
+WEB_DIR="${SCRIPT_DIR}/web-manager/dist"
 
 log() { echo "[setup] $*"; }
 error() { echo "[setup] ERROR: $*" >&2; exit 1; }

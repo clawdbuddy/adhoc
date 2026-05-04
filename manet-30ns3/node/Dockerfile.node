@@ -14,7 +14,7 @@ RUN sed -i 's/archive.ubuntu.com/mirrors.ustc.edu.cn/g' /etc/apt/sources.list \
     && sed -i 's/security.ubuntu.com/mirrors.ustc.edu.cn/g' /etc/apt/sources.list
 
 RUN apt-get update && apt-get install -y \
-    iproute2 iputils-ping net-tools \
+    iproute2 iputils-ping net-tools traceroute \
     iperf3 tcpdump ethtool curl wget \
     bridge-utils iw wireless-tools \
     socat nmap iptraf-ng \

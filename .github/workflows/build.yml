@@ -65,8 +65,8 @@ jobs:
   # ---------------------------------------------------------------------------
   # 2. 把 React Web 管理面板与 ns3-controller 镜像打包到一起：
   #    同一 job 内先 vite build 出 dist/，再喂给 Dockerfile.controller。
-  #    Dockerfile.controller 第 88 行 `COPY web-manager /app/dist` 会把 UI 静
-  #    态包烤进 ns3-controller 镜像，FastAPI 在 :8000 端口直接托管。
+  #    Dockerfile.controller 的 `COPY web-manager/dist /app/dist` 把 UI 静态包
+  #    烤进 ns3-controller 镜像，FastAPI 在 :8000 端口直接托管。
   # ---------------------------------------------------------------------------
   controller-image:
     name: Build ns3-controller 镜像（含 Web 管理面板）
@@ -75,31 +75,24 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # ---- 2a. 编译 React 面板，结果放到 manet-30ns3/web-manager/ ----
+      # ---- 2a. 在 manet-30ns3/web-manager/ 内编译 React 面板 → 同目录 dist/ ----
       - uses: actions/setup-node@v4
         with:
           node-version: "20"
           cache: npm
-          cache-dependency-path: app/package-lock.json
+          cache-dependency-path: manet-30ns3/web-manager/package-lock.json
 
       - name: npm ci
-        working-directory: app
+        working-directory: manet-30ns3/web-manager
         run: npm ci --no-audit --no-fund
 
       - name: lint（非阻塞）
-        working-directory: app
+        working-directory: manet-30ns3/web-manager
         run: npm run lint || echo "::warning::ESLint 未通过，但不阻塞 build"
 
       - name: vite build
-        working-directory: app
+        working-directory: manet-30ns3/web-manager
         run: npm run build
-
-      - name: 拷贝 dist 到 web-manager/
-        run: |
-          rm -rf manet-30ns3/web-manager
-          mkdir -p manet-30ns3/web-manager
-          cp -r app/dist/. manet-30ns3/web-manager/
-          ls -la manet-30ns3/web-manager/
 
       # ---- 2b. Docker 构建并推送 ----
       - uses: docker/setup-buildx-action@v3

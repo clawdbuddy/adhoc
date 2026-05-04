@@ -9,14 +9,14 @@ import os
 import sys
 
 def _find_project_root() -> str:
-    """定位项目根目录（包含 controller/ 和 web-manager/ 的目录）。"""
+    """定位项目根目录（包含 controller/ 和 web-manager/dist/ 的目录）。"""
     # 策略 1：从可执行文件路径推断（PyInstaller 场景）
     if getattr(sys, 'frozen', False):
         exe_dir = os.path.dirname(sys.executable)
         # PyInstaller --onedir: _internal/controller/__main__.py
         # PyInstaller --onefile: 临时目录
         for candidate in (exe_dir, os.path.dirname(exe_dir)):
-            if os.path.isdir(os.path.join(candidate, 'web-manager')):
+            if os.path.isdir(os.path.join(candidate, 'web-manager', 'dist')):
                 return candidate
         return exe_dir
 
@@ -29,7 +29,7 @@ def _find_project_root() -> str:
 def main() -> None:
     root = _find_project_root()
     controller_dir = os.path.join(root, 'controller')
-    web_dir = os.path.join(root, 'web-manager')
+    web_dir = os.path.join(root, 'web-manager', 'dist')
 
     # 确保 PYTHONPATH 包含 controller 包
     if controller_dir not in sys.path:

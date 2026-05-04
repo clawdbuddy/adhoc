@@ -44,6 +44,8 @@ services:
       - /var/run/netns:/var/run/netns
       # Optional: surface pcap/ascii traces and FlowMonitor XML to the host
       - ./results:/results
+      # Persist user simulation configuration across container restarts
+      - ./config:/app/config
     restart: unless-stopped
 
   # NS-3.47 变体（cppyy 绑定）。默认 `docker compose up` 不拉取，必须用 profile 启用：
@@ -72,6 +74,7 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
       - /var/run/netns:/var/run/netns
       - ./results:/results
+      - ./config:/app/config
     # 8000 已被 ns3-controller 占用；这里换 8001 以便并行起服。
     command: ["uvicorn", "controller.api.main:app",
               "--host", "0.0.0.0", "--port", "8001"]

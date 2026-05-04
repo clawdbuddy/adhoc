@@ -106,7 +106,7 @@ ENV PYTHONPATH="${NS3_DIR}/build/bindings/python:/app:${PYTHONPATH}"
 # --- 10. 控制器代码 + UI 静态资源 ---
 WORKDIR /app
 COPY controller /app/controller
-COPY web-manager /app/dist
+COPY web-manager/dist /app/dist
 
 ENV MANET_WEB_DIR=/app/dist
 EXPOSE 8000
