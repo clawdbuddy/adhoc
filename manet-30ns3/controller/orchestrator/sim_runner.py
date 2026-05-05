@@ -145,6 +145,7 @@ class SimRunner:
         self._wifi_devices: Any = None
         self._spectrum_channel: Any = None
         self._propagation_loss_model: Any = None
+        self._range_model: Any = None
         self._phy_model_type: str = ""
         # 实际使用的 MAC 模式;若 mesh 因 pybindgen 绑定缺失而 fallback,这里会变成 "adhoc"
         self._mac_mode_actual: str = ""
@@ -431,8 +432,15 @@ class SimRunner:
         self._add_yans_path_loss(ns, ch, cfg)
         if cfg.enable_fading:
             self._add_yans_fading(ns, ch, cfg)
+        # 叠加 Range 硬截断（Yans 路径）
+        if cfg.range_target_m > 0:
+            ch.AddPropagationLoss(
+                "ns3::RangePropagationLossModel",
+                "MaxRange", ns.core.DoubleValue(cfg.range_target_m),
+            )
         phy = ns.wifi.YansWifiPhyHelper()
         phy.SetChannel(ch.Create())
+        phy.Set("ChannelWidth", ns.core.UintegerValue(cfg.channel_width_mhz))
         return phy
 
     def _build_spectrum_phy(self, ns: Any, cfg: SimConfig) -> tuple[Any, Any, Any | None]:
@@ -450,6 +458,16 @@ class SimRunner:
         loss = self._make_path_loss_object(ns, cfg)
         if loss is not None:
             spec_chan.AddPropagationLossModel(loss)
+
+        # 叠加 Range 硬截断：无论主模型是什么，都按 range_target_m 做最大距离限制。
+        # 这样 FreeSpace/LogDistance 模型下也能通过 set_range_target 动态控制通信距离。
+        if cfg.range_target_m > 0:
+            range_loss = ns.propagation.RangePropagationLossModel()
+            range_loss.SetAttribute("MaxRange", ns.core.DoubleValue(cfg.range_target_m))
+            spec_chan.AddPropagationLossModel(range_loss)
+            self._range_model = range_loss
+        else:
+            self._range_model = None
 
         if cfg.enable_fading and cfg.fading_model == "Nakagami":
             nak = ns.propagation.NakagamiPropagationLossModel()
@@ -469,6 +487,7 @@ class SimRunner:
 
         phy = ns.wifi.SpectrumWifiPhyHelper()
         phy.SetChannel(spec_chan)
+        phy.Set("ChannelWidth", ns.core.UintegerValue(cfg.channel_width_mhz))
         # 频段表里 590 MHz 不是合法 802.11 频道，因此 SpectrumWifiPhy 内部仍按
         # 默认的 802.11a 5GHz 频道号工作；真实物理频段语义由 Friis 的 Frequency
         # 决定。Logger 里把 cfg.frequency_mhz 打出来便于审计。
@@ -735,64 +754,152 @@ class SimRunner:
         stack.Install(nodes)
 
     # ------------------------------------------------- dynamic control
-    def _inject_command(self, fn: Callable[[], None]) -> None:
-        """将命令闭包放入队列，由 ns-3 线程在下一 tick 中执行。"""
-        self._command_queue.put(fn)
+    def _inject_command(self, fn: Callable[[], None]) -> dict[str, Any]:
+        """将命令闭包放入队列，同步等待执行结果返回。
+
+        命令由 _wall_pacer_loop 在 wall-time 线程中执行。
+        最多等待 5 秒；超时返回失败。
+        """
+        result: dict[str, Any] = {}
+        done_event = threading.Event()
+
+        def _wrapped():
+            try:
+                fn()
+                result["ok"] = True
+            except Exception as e:
+                result["ok"] = False
+                result["error"] = f"{type(e).__name__}: {e}"
+            finally:
+                done_event.set()
+
+        self._command_queue.put(_wrapped)
+
+        if not done_event.wait(timeout=5.0):
+            return {"applied": False, "reason": "command execution timeout (wall pacer not responding)"}
+
+        if not result.get("ok"):
+            return {"applied": False, "reason": result.get("error", "unknown execution error")}
+
+        return {"applied": True}
+
+    def _get_node_phy(self, node_id: int) -> tuple[Any, str | None]:
+        """获取指定节点的 WifiPhy，处理 adhoc 和 mesh 两种模式。
+
+        返回 (phy, error_message) 二元组。error_message 为 None 表示成功。
+        """
+        ns = self._ns
+        if ns is None or self._wifi_devices is None:
+            return None, "ns or wifi_devices not ready"
+
+        device = self._wifi_devices.Get(node_id)
+
+        # 方法1: 直接尝试 GetPhy (adhoc 模式下 device 可能是 WifiNetDevice)
+        try:
+            phy = device.GetPhy()
+            if phy is not None:
+                return phy, None
+        except (AttributeError, TypeError):
+            pass
+
+        # 方法2: 通过 GetObject 转换为 WifiNetDevice
+        try:
+            type_id = ns.wifi.WifiNetDevice.GetTypeId()
+            wifi_dev = device.GetObject(type_id)
+            if wifi_dev is not None:
+                phy = wifi_dev.GetPhy()
+                if phy is not None:
+                    return phy, None
+        except Exception:
+            pass
+
+        # 方法3: MeshPointDevice - 获取第一个底层接口
+        try:
+            type_id = ns.mesh.MeshPointDevice.GetTypeId()
+            mesh_dev = device.GetObject(type_id)
+            if mesh_dev is not None:
+                if hasattr(mesh_dev, "GetInterfaces"):
+                    interfaces = mesh_dev.GetInterfaces()
+                    if interfaces.GetN() > 0:
+                        iface = interfaces.Get(0)
+                        wifi_dev = iface.GetObject(ns.wifi.WifiNetDevice.GetTypeId())
+                        if wifi_dev is not None:
+                            phy = wifi_dev.GetPhy()
+                            if phy is not None:
+                                return phy, None
+                return None, "MeshPointDevice has no WifiNetDevice interfaces"
+        except Exception:
+            pass
+
+        dev_name = ""
+        try:
+            dev_name = str(device.GetInstanceTypeId().GetName())
+        except Exception:
+            pass
+        return None, f"unable to get PHY from device (type: {dev_name or 'unknown'})"
 
     def set_node_position(self, node_id: int, x: float, y: float, z: float = 0.0) -> dict[str, Any]:
         """将节点位置跃迁到指定坐标（线程安全）。"""
         if node_id >= self.config.n_nodes:
             return {"applied": False, "reason": "node_id out of range"}
+
         def _do():
             ns = self._ns
             if ns is None or self._nodes_container is None:
-                return
+                raise RuntimeError("ns or nodes_container not ready")
             node = self._nodes_container.Get(node_id)
             mm = node.GetObject(ns.mobility.MobilityModel.GetTypeId())
-            if mm:
-                mm.SetPosition(ns.core.Vector(x, y, z))
-                with self._lock:
-                    self._env_state.positions[node_id] = {"x": float(x), "y": float(y), "z": float(z)}
-                log.info("node-%d position set to (%.1f, %.1f, %.1f)", node_id, x, y, z)
-        self._inject_command(_do)
-        return {"applied": True}
+            if not mm:
+                raise RuntimeError("mobility model not found on node")
+            mm.SetPosition(ns.core.Vector(x, y, z))
+            with self._lock:
+                self._env_state.positions[node_id] = {"x": float(x), "y": float(y), "z": float(z)}
+            log.info("node-%d position set to (%.1f, %.1f, %.1f)", node_id, x, y, z)
+
+        return self._inject_command(_do)
 
     def set_tx_power(self, node_id: int, dbm: float) -> dict[str, Any]:
         """修改指定节点的发射功率（线程安全）。"""
         if node_id >= self.config.n_nodes:
             return {"applied": False, "reason": "node_id out of range"}
+
         def _do():
             ns = self._ns
             if ns is None or self._wifi_devices is None:
-                return
-            device = self._wifi_devices.Get(node_id)
-            phy = device.GetPhy()
-            if hasattr(phy, "SetAttribute"):
-                phy.SetAttribute("TxPowerStart", ns.core.DoubleValue(dbm))
-                phy.SetAttribute("TxPowerEnd", ns.core.DoubleValue(dbm))
-                with self._lock:
-                    self._env_state.tx_power[node_id] = float(dbm)
-                log.info("node-%d tx power set to %.1f dBm", node_id, dbm)
-        self._inject_command(_do)
-        return {"applied": True}
+                raise RuntimeError("ns or wifi_devices not ready")
+
+            phy, err = self._get_node_phy(node_id)
+            if err:
+                raise RuntimeError(err)
+
+            phy.SetAttribute("TxPowerStart", ns.core.DoubleValue(dbm))
+            phy.SetAttribute("TxPowerEnd", ns.core.DoubleValue(dbm))
+            with self._lock:
+                self._env_state.tx_power[node_id] = float(dbm)
+            log.info("node-%d tx power set to %.1f dBm", node_id, dbm)
+
+        return self._inject_command(_do)
 
     def set_rx_sensitivity(self, node_id: int, dbm: float) -> dict[str, Any]:
         """修改指定节点的接收灵敏度（线程安全）。"""
         if node_id >= self.config.n_nodes:
             return {"applied": False, "reason": "node_id out of range"}
+
         def _do():
             ns = self._ns
             if ns is None or self._wifi_devices is None:
-                return
-            device = self._wifi_devices.Get(node_id)
-            phy = device.GetPhy()
-            if hasattr(phy, "SetAttribute"):
-                phy.SetAttribute("RxSensitivity", ns.core.DoubleValue(dbm))
-                with self._lock:
-                    self._env_state.rx_sensitivity[node_id] = float(dbm)
-                log.info("node-%d rx sensitivity set to %.1f dBm", node_id, dbm)
-        self._inject_command(_do)
-        return {"applied": True}
+                raise RuntimeError("ns or wifi_devices not ready")
+
+            phy, err = self._get_node_phy(node_id)
+            if err:
+                raise RuntimeError(err)
+
+            phy.SetAttribute("RxSensitivity", ns.core.DoubleValue(dbm))
+            with self._lock:
+                self._env_state.rx_sensitivity[node_id] = float(dbm)
+            log.info("node-%d rx sensitivity set to %.1f dBm", node_id, dbm)
+
+        return self._inject_command(_do)
 
     def set_path_loss_exponent(self, exponent: float) -> dict[str, Any]:
         """修改全局路径损耗指数（仅 LogDistance 模型，线程安全）。
@@ -807,6 +914,7 @@ class SimRunner:
         model_name = str(model.GetInstanceTypeId().GetName())
         if "LogDistance" not in model_name:
             return {"applied": False, "reason": f"current model is {model_name}, not LogDistance"}
+
         def _do():
             self._propagation_loss_model.SetAttribute(
                 "Exponent", self._ns.core.DoubleValue(exponent)
@@ -814,8 +922,8 @@ class SimRunner:
             with self._lock:
                 self._env_state.path_loss_exponent = float(exponent)
             log.info("path loss exponent set to %.2f", exponent)
-        self._inject_command(_do)
-        return {"applied": True}
+
+        return self._inject_command(_do)
 
     def set_frequency(self, mhz: int) -> dict[str, Any]:
         """修改全局中心频率（线程安全）。
@@ -830,6 +938,7 @@ class SimRunner:
         model_name = str(model.GetInstanceTypeId().GetName())
         if "Friis" not in model_name and "TwoRay" not in model_name:
             return {"applied": False, "reason": f"current model {model_name} does not support frequency adjustment"}
+
         def _do():
             ns = self._ns
             freq_hz = float(mhz) * 1e6
@@ -842,8 +951,8 @@ class SimRunner:
                 "propagation-loss frequency set to %d MHz (%.0f Hz); PHY 载波保持不动,如需重置 802.11 频道请重启仿真",
                 mhz, freq_hz,
             )
-        self._inject_command(_do)
-        return {"applied": True}
+
+        return self._inject_command(_do)
 
     def set_channel_width(self, mhz: int) -> dict[str, Any]:
         """修改全局信道宽度（线程安全）。
@@ -855,13 +964,29 @@ class SimRunner:
         return {"applied": False, "reason": "channel width requires simulator restart"}
 
     def set_range_target(self, meters: float) -> dict[str, Any]:
-        """修改 Range 传播模型的最大距离（线程安全）。"""
+        """修改全局最大通信距离（线程安全）。
+
+        优先调整叠加的 Range 模型（所有主模型都叠加了 Range 截断）；
+        若叠加模型不存在，回退到直接调整主传播损耗模型（仅 Range 模型本身支持）。
+        """
+        # 1. 优先使用叠加的 Range 模型（所有场景都可用）
+        range_model = self._range_model
+        if range_model is not None:
+            def _do():
+                range_model.SetAttribute("MaxRange", self._ns.core.DoubleValue(meters))
+                with self._lock:
+                    self._env_state.range_target_m = float(meters)
+                log.info("range target (overlay) set to %.0f m", meters)
+            return self._inject_command(_do)
+
+        # 2. 回退：直接调整主传播损耗模型（仅当主模型本身就是 Range 时有效）
         model = self._propagation_loss_model
         if model is None:
             return {"applied": False, "reason": "propagation loss model not ready"}
         model_name = str(model.GetInstanceTypeId().GetName())
         if "Range" not in model_name:
             return {"applied": False, "reason": f"current model is {model_name}, not Range"}
+
         def _do():
             self._propagation_loss_model.SetAttribute(
                 "MaxRange", self._ns.core.DoubleValue(meters)
@@ -869,8 +994,8 @@ class SimRunner:
             with self._lock:
                 self._env_state.range_target_m = float(meters)
             log.info("range target set to %.0f m", meters)
-        self._inject_command(_do)
-        return {"applied": True}
+
+        return self._inject_command(_do)
 
     # ------------------------------------------------- in-simulator periodic
     def _schedule_periodic(self, ns: Any, nodes: Any, period_s: float) -> None:

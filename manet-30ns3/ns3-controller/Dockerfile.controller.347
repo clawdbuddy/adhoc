@@ -87,6 +87,10 @@ RUN if [ -f /etc/ns3-build-env ]; then set -a && . /etc/ns3-build-env && set +a;
     --disable-examples --disable-tests \
     --enable-python-bindings \
     --enable-modules="core;network;internet;wifi;mobility;tap-bridge;flow-monitor;propagation;spectrum;aodv;olsr;dsdv;dsr;mesh" \
+    -- \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DNS3_EIGEN3=ON \
+    -DEigen3_DIR=/usr/share/eigen3/cmake \
     && ./ns3 build -j${NS3_JOBS}
 
 # --- 8. 预热 cppyy PCH 缓存 ---

@@ -173,7 +173,7 @@ curl -X PUT localhost:8000/api/config \
 
 | Preset | 适用场景 | 关键设置 |
 |--------|----------|----------|
-| `default` | 用户目标场景（mesh） | 802.11s mesh + SpectrumWifiPhy + Friis @ 590 MHz UHF + 30 节点 + 5 km × 5 km + 4 km LOS + AODV |
+| `default` | 用户目标场景（adhoc） | AdhocWifiMac + SpectrumWifiPhy + Friis @ 2412 MHz WiFi + 6 节点 + 5 km × 5 km + 4 km LOS + AODV |
 | `urban` | 高密度城市（mesh） | LogDistance n=3.5、Nakagami 强衰落、Aarf、始终 RTS/CTS、2 km × 2 km |
 | `rural` | 开阔野外（mesh） | FreeSpace、关闭衰落、Grid 8 km × 8 km、关闭 RTS/CTS |
 | `debug` | 5 节点冒烟测试（adhoc） | adhoc 模式、routing=none、Grid 5×5 / 50 m 间距、200 m 视距、ASCII trace |
@@ -186,7 +186,7 @@ curl -X PUT localhost:8000/api/config \
 
 | 参数 | 默认值 | 说明 |
 |------|--------|------|
-| `nNodes` | 30 | AdHoc 节点数（2–100） |
+| `nNodes` | 6 | AdHoc 节点数（2–100） |
 | `simulationTime` | 300 | 仿真时长（秒） |
 | `seed` | 1 | 随机种子 |
 | `run` | 1 | run 编号 |
@@ -196,12 +196,12 @@ curl -X PUT localhost:8000/api/config \
 
 | 参数 | 默认值 | 取值 |
 |------|--------|------|
-| `standard` | `80211a` | `80211b`、`80211a`、`80211g`、`80211n-2.4GHz`、`80211n-5GHz`、`80211ac`、`80211ax-2.4GHz`、`80211ax-5GHz` |
+| `standard` | `80211g` | `80211b`、`80211a`、`80211g`、`80211n-2.4GHz`、`80211n-5GHz`、`80211ac`、`80211ax-2.4GHz`、`80211ax-5GHz` |
 | `phyModel` | `spectrum` | `yans` 或 `spectrum`（默认走 `SpectrumWifiPhy + MultiModelSpectrumChannel`） |
-| `frequencyMhz` | 590 | 中心频率（MHz）；默认覆盖 500–680 MHz UHF 频段，路径损耗按此频率算 |
+| `frequencyMhz` | 2412 | 中心频率（MHz）；默认 2.4 GHz WiFi Channel 1 (2412 MHz)，路径损耗按此频率算 |
 | `channelWidthMhz` | 20 | 信道带宽（MHz） |
 | `rangeTargetM` | 4000 | 期望视距覆盖半径（m），用于显示与冒烟检查 |
-| `dataRate` | `OfdmRate6Mbps` | 任意 ns-3 wifi mode 字符串 |
+| `dataRate` | `ErpOfdmRate24Mbps` | 任意 ns-3 wifi mode 字符串 |
 | `txPowerStart` / `txPowerEnd` | 30.0 | 发射功率（dBm） |
 | `txPowerLevels` | 1 | 功率级数 |
 | `rxSensitivity` | -92.0 | 接收灵敏度（dBm） |
@@ -213,7 +213,7 @@ curl -X PUT localhost:8000/api/config \
 | 参数 | 默认值 | 说明 |
 |------|--------|------|
 | `propagationDelay` | `ConstantSpeed` | `ConstantSpeed` 或 `Random` |
-| `pathLossModel` | `FreeSpace` | `LogDistance`、`FreeSpace`、`TwoRayGround`、`ThreeLogDistance`、`Cost231`、`Range`（`spectrum` PHY 默认 Friis @ 590 MHz） |
+| `pathLossModel` | `FreeSpace` | `LogDistance`、`FreeSpace`、`TwoRayGround`、`ThreeLogDistance`、`Cost231`、`Range`（`spectrum` PHY 默认 Friis @ 2412 MHz） |
 | `pathLossExponent` | 2.0 | 路径损耗指数 n（2 = 自由空间，3 = 城市，4 = 高密度城市） |
 | `pathLossRefLoss` | 46.6777 | 1m 处参考损耗（dB） |
 | `pathLossRefDistance` | 1.0 | 参考距离（m） |
@@ -229,7 +229,7 @@ curl -X PUT localhost:8000/api/config \
 
 | 参数 | 默认值 | 说明 |
 |------|--------|------|
-| `macMode` | `mesh` | `mesh`（802.11s + HWMP，L2 多跳）或 `adhoc`（IBSS，单跳广播域，多跳由上层路由完成） |
+| `macMode` | `adhoc` | `mesh`（802.11s + HWMP，L2 多跳）或 `adhoc`（IBSS，单跳广播域，多跳由上层路由完成） |
 | `ssid` | `adhoc-30ns3` | IBSS / mesh 网络名 |
 | `bssid` | `00:00:00:00:AD:H0` | IBSS BSSID（hex，仅 `adhoc` 模式） |
 | `rateControl` | `Arf` | `Arf`、`Aarf`、`Onoe`、`Constant`、`Minstrel` |
