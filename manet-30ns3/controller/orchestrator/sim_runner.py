@@ -854,6 +854,11 @@ class SimRunner:
             mm.SetPosition(ns.core.Vector(x, y, z))
             with self._lock:
                 self._env_state.positions[node_id] = {"x": float(x), "y": float(y), "z": float(z)}
+                # 同步更新 _nodes_runtime，避免 snapshot_nodes() 与 snapshot_env() 在
+                # _wall_pacer_loop 下一周期（100ms）前出现位置不一致。
+                nr = self._nodes_runtime.setdefault(node_id, NodeRuntime(id=node_id))
+                nr.x = float(x)
+                nr.y = float(y)
             log.info("node-%d position set to (%.1f, %.1f, %.1f)", node_id, x, y, z)
 
         return self._inject_command(_do)
