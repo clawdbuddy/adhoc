@@ -55,6 +55,7 @@ export function DynamicControl({ status, nodes, config, env }: DynamicControlPro
   // 当遥测帧中的动态参数变化时（如通过其他客户端或 API 修改），同步滑块值与位置输入框
   useEffect(() => {
     if (!env) return;
+    if (isDirty()) return; // 用户正在交互，暂停同步防止值被重置
     if (env.txPower[selectedNode] !== undefined) {
       setTxPower([env.txPower[selectedNode]]);
     }
@@ -69,9 +70,16 @@ export function DynamicControl({ status, nodes, config, env }: DynamicControlPro
       setPosX(env.positions[selectedNode].x.toFixed(1));
       setPosY(env.positions[selectedNode].y.toFixed(1));
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [env, selectedNode]);
 
   const [result, setResult] = useState<{ ok: boolean; msg: string } | null>(null);
+
+  // 脏标志：用户手动修改 Slider/输入框后 3 秒内，暂停从 WebSocket env 同步，
+  // 防止遥测帧把正在拖拽的值重置回去。
+  const [dirtyUntil, setDirtyUntil] = useState(0);
+  const isDirty = () => Date.now() < dirtyUntil;
+  const markDirty = () => setDirtyUntil(Date.now() + 3000);
 
   const running = status.running;
 
@@ -157,7 +165,7 @@ export function DynamicControl({ status, nodes, config, env }: DynamicControlPro
                 <Input
                   type="number"
                   value={posX}
-                  onChange={e => setPosX(e.target.value)}
+                  onChange={e => { setPosX(e.target.value); markDirty(); }}
                   placeholder="0"
                   disabled={!running}
                   className="h-8 text-sm"
@@ -168,7 +176,7 @@ export function DynamicControl({ status, nodes, config, env }: DynamicControlPro
                 <Input
                   type="number"
                   value={posY}
-                  onChange={e => setPosY(e.target.value)}
+                  onChange={e => { setPosY(e.target.value); markDirty(); }}
                   placeholder="0"
                   disabled={!running}
                   className="h-8 text-sm"
@@ -206,7 +214,7 @@ export function DynamicControl({ status, nodes, config, env }: DynamicControlPro
             </div>
             <Slider
               value={txPower}
-              onValueChange={setTxPower}
+              onValueChange={v => { setTxPower(v); markDirty(); }}
               min={0}
               max={40}
               step={1}
@@ -243,7 +251,7 @@ export function DynamicControl({ status, nodes, config, env }: DynamicControlPro
             </div>
             <Slider
               value={rxSens}
-              onValueChange={setRxSens}
+              onValueChange={v => { setRxSens(v); markDirty(); }}
               min={-110}
               max={-60}
               step={1}
@@ -280,7 +288,7 @@ export function DynamicControl({ status, nodes, config, env }: DynamicControlPro
             </div>
             <Slider
               value={pathLossExp}
-              onValueChange={setPathLossExp}
+              onValueChange={v => { setPathLossExp(v); markDirty(); }}
               min={1.0}
               max={6.0}
               step={0.1}
@@ -317,7 +325,7 @@ export function DynamicControl({ status, nodes, config, env }: DynamicControlPro
             </div>
             <Slider
               value={frequency}
-              onValueChange={setFrequency}
+              onValueChange={v => { setFrequency(v); markDirty(); }}
               min={300}
               max={5800}
               step={10}
@@ -354,7 +362,7 @@ export function DynamicControl({ status, nodes, config, env }: DynamicControlPro
             </div>
             <Slider
               value={channelWidth}
-              onValueChange={setChannelWidth}
+              onValueChange={v => { setChannelWidth(v); markDirty(); }}
               min={5}
               max={80}
               step={5}
@@ -391,7 +399,7 @@ export function DynamicControl({ status, nodes, config, env }: DynamicControlPro
             </div>
             <Slider
               value={rangeTarget}
-              onValueChange={setRangeTarget}
+              onValueChange={v => { setRangeTarget(v); markDirty(); }}
               min={100}
               max={10000}
               step={100}
