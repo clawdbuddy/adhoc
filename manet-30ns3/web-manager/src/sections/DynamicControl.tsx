@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -7,7 +7,7 @@ import { Slider } from '@/components/ui/slider';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { useDynamicControl } from '@/hooks/useDynamicControl';
-import type { NodeStatus, SimulationStatus } from '@/types/config';
+import type { NodeStatus, SimulationStatus, SimConfig, TelemetryEnv } from '@/types/config';
 import {
   Zap, MapPin, Radio, Activity, Settings2,
   Send, CheckCircle, AlertCircle
@@ -16,31 +16,77 @@ import {
 interface DynamicControlProps {
   status: SimulationStatus;
   nodes: NodeStatus[];
+  config: SimConfig;
+  env: TelemetryEnv | null;
 }
 
-export function DynamicControl({ status, nodes }: DynamicControlProps) {
+export function DynamicControl({ status, nodes, config, env }: DynamicControlProps) {
   const ctrl = useDynamicControl();
   const [selectedNode, setSelectedNode] = useState(0);
   const [posX, setPosX] = useState('');
   const [posY, setPosY] = useState('');
-  const [txPower, setTxPower] = useState([30]);
-  const [rxSens, setRxSens] = useState([-92]);
-  const [pathLossExp, setPathLossExp] = useState([2.0]);
-  const [frequency, setFrequency] = useState([590]);
-  const [channelWidth, setChannelWidth] = useState([20]);
-  const [rangeTarget, setRangeTarget] = useState([4000]);
+  const [txPower, setTxPower] = useState([config.txPowerStart]);
+  const [rxSens, setRxSens] = useState([config.rxSensitivity]);
+  const [pathLossExp, setPathLossExp] = useState([config.pathLossExponent]);
+  const [frequency, setFrequency] = useState([config.frequencyMhz]);
+  const [channelWidth, setChannelWidth] = useState([config.channelWidthMhz]);
+  const [rangeTarget, setRangeTarget] = useState([config.rangeTargetM]);
+
+  // 当外部配置变化时（如加载新预设），同步滑块值
+  useEffect(() => {
+    setTxPower([config.txPowerStart]);
+    setRxSens([config.rxSensitivity]);
+    setPathLossExp([config.pathLossExponent]);
+    setFrequency([config.frequencyMhz]);
+    setChannelWidth([config.channelWidthMhz]);
+    setRangeTarget([config.rangeTargetM]);
+  }, [config]);
+
+  // 当切换节点时，从 nodes prop 同步当前位置到输入框
+  useEffect(() => {
+    const node = nodes.find(n => n.id === selectedNode);
+    if (node) {
+      setPosX(node.x.toFixed(1));
+      setPosY(node.y.toFixed(1));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedNode]);
+
+  // 当遥测帧中的动态参数变化时（如通过其他客户端或 API 修改），同步滑块值与位置输入框
+  useEffect(() => {
+    if (!env) return;
+    if (env.txPower[selectedNode] !== undefined) {
+      setTxPower([env.txPower[selectedNode]]);
+    }
+    if (env.rxSensitivity[selectedNode] !== undefined) {
+      setRxSens([env.rxSensitivity[selectedNode]]);
+    }
+    setPathLossExp([env.pathLossExponent]);
+    setFrequency([env.frequencyMhz]);
+    setChannelWidth([env.channelWidthMhz]);
+    setRangeTarget([env.rangeTargetM]);
+    if (env.positions?.[selectedNode]) {
+      setPosX(env.positions[selectedNode].x.toFixed(1));
+      setPosY(env.positions[selectedNode].y.toFixed(1));
+    }
+  }, [env, selectedNode]);
+
   const [result, setResult] = useState<{ ok: boolean; msg: string } | null>(null);
 
   const running = status.running;
 
-  const doAction = async (action: () => Promise<unknown>, desc: string) => {
+  const doAction = async (action: () => Promise<{ applied?: boolean; reason?: string } | void>, desc: string) => {
     if (!running) {
       setResult({ ok: false, msg: '仿真未运行' });
       return;
     }
     try {
-      await action();
-      setResult({ ok: true, msg: `${desc} 成功` });
+      const res = await action();
+      if (res && 'applied' in res && res.applied === false) {
+        setResult({ ok: false, msg: `${desc} 未生效: ${res.reason || '当前配置不支持此修改'}` });
+      } else {
+        setResult({ ok: true, msg: `${desc} 已生效` });
+      }
     } catch (e) {
       setResult({ ok: false, msg: `${desc} 失败: ${(e as Error).message}` });
     }

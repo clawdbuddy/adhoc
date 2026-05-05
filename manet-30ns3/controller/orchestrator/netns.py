@@ -3,16 +3,23 @@
 Replaces setup-network.sh / cleanup.sh / setup-taps.sh. Idempotent.
 
 For each node `i`:
-    veth{i}      (host side, master = br-ns3, up)
+    veth{i}      (host side, master = br-ns3-{i}, up)
     vethns{i}    (peer side, moved into the container's netns and renamed eth0)
-    tap-{i}      (master = br-ns3, up; attached by ns-3 TapBridge in UseBridge mode)
+    tap-{i}      (master = br-ns3-{i}, up; attached by ns-3 TapBridge in UseBridge mode)
 
-All TAPs and host-side veths share the single bridge `br-ns3`. ns-3 owns L2
-forwarding decisions; the Linux bridge only fans frames between each container's
-veth and its dedicated TAP.
+Each node has its own dedicated Linux bridge `br-ns3-{i}` that connects only
+that node's veth and TAP.  This prevents the Linux bridge from learning
+container MAC addresses and forwarding unicast frames directly between veth
+interfaces, which would bypass the ns-3 PHY/MAC simulation entirely.
 
-Multi-host hook (Phase 2): replace the local bridge with a VXLAN-backed bridge
-on each host so frames cross the overlay to the simulation host's br-ns3.
+Cross-node traffic is forced to go through ns-3:
+
+    Container-0 eth0 → veth0 → br-ns3-0 → tap-0
+        → [ns-3 WifiNetDevice → SpectrumChannel → WifiNetDevice]
+            → tap-1 → br-ns3-1 → veth1 → Container-1 eth0
+
+Multi-host hook (Phase 2): replace the local per-node bridges with VXLAN-backed
+bridges on each host so frames cross the overlay to the simulation host.
 """
 from __future__ import annotations
 
@@ -35,24 +42,59 @@ def _get_link_index(ipr: IPRoute, name: str) -> int | None:
     return idx[0] if idx else None
 
 
+def node_bridge_name(node_id: int) -> str:
+    """Return the per-node bridge name, e.g. br-ns3-0."""
+    return f"{DEFAULT_BRIDGE}-{node_id}"
+
+
+def ensure_node_bridge(
+    node_id: int,
+    ip: str | None = None,
+    prefixlen: int = DEFAULT_BRIDGE_PREFIX,
+) -> None:
+    """Create the per-node bridge br-ns3-{node_id} with STP off, idempotently."""
+    name = node_bridge_name(node_id)
+    with IPRoute() as ipr:
+        idx = _get_link_index(ipr, name)
+        if idx is None:
+            ipr.link("add", ifname=name, kind="bridge")
+            idx = _get_link_index(ipr, name)
+            log.info("created node bridge %s", name)
+        # STP off, forward_delay 0
+        ipr.link(
+            "set", index=idx, kind="bridge",
+            br_stp_state=0, br_forward_delay=0,
+        )
+        if ip:
+            # Replace IP
+            for addr in ipr.get_addr(index=idx, family=2):
+                ipr.addr("del", index=idx, address=addr.get_attr("IFA_ADDRESS"),
+                         prefixlen=addr["prefixlen"])
+            ipr.addr("add", index=idx, address=ip, prefixlen=prefixlen)
+        ipr.link("set", index=idx, state="up")
+
+
 def ensure_bridge(
     name: str = DEFAULT_BRIDGE,
     ip: str = DEFAULT_BRIDGE_IP,
     prefixlen: int = DEFAULT_BRIDGE_PREFIX,
 ) -> None:
-    """Create br-ns3 with STP off and the gateway IP, idempotently."""
+    """Create br-ns3 with STP off and the gateway IP, idempotently.
+
+    .. deprecated::
+        Use :func:`ensure_node_bridge` for per-node isolated bridges.
+        Kept for backward compatibility.
+    """
     with IPRoute() as ipr:
         idx = _get_link_index(ipr, name)
         if idx is None:
             ipr.link("add", ifname=name, kind="bridge")
             idx = _get_link_index(ipr, name)
             log.info("created bridge %s", name)
-        # STP off, forward_delay 0
         ipr.link(
             "set", index=idx, kind="bridge",
             br_stp_state=0, br_forward_delay=0,
         )
-        # Replace IP
         for addr in ipr.get_addr(index=idx, family=2):
             ipr.addr("del", index=idx, address=addr.get_attr("IFA_ADDRESS"),
                      prefixlen=addr["prefixlen"])
@@ -60,9 +102,10 @@ def ensure_bridge(
         ipr.link("set", index=idx, state="up")
 
 
-def create_veth(host_name: str, peer_name: str, bridge: str = DEFAULT_BRIDGE) -> None:
-    """veth pair; host-side joins the bridge and goes up. Peer-side is left
-    in the host netns (caller moves it into the container)."""
+def create_veth(host_name: str, peer_name: str, node_id: int) -> None:
+    """veth pair; host-side joins the per-node bridge and goes up.
+    Peer-side is left in the host netns (caller moves it into the container)."""
+    bridge = node_bridge_name(node_id)
     with IPRoute() as ipr:
         if _get_link_index(ipr, host_name) is None:
             ipr.link("add", ifname=host_name, kind="veth", peer={"ifname": peer_name})
@@ -70,7 +113,7 @@ def create_veth(host_name: str, peer_name: str, bridge: str = DEFAULT_BRIDGE) ->
         host_idx = _get_link_index(ipr, host_name)
         br_idx = _get_link_index(ipr, bridge)
         if br_idx is None:
-            raise RuntimeError(f"bridge {bridge} missing; call ensure_bridge() first")
+            raise RuntimeError(f"bridge {bridge} missing; call ensure_node_bridge({node_id}) first")
         ipr.link("set", index=host_idx, master=br_idx)
         ipr.link("set", index=host_idx, state="up")
 
@@ -128,8 +171,9 @@ def move_to_netns(
         ns.link("set", index=peer_idx, state="up")
 
 
-def create_tap(name: str, bridge: str = DEFAULT_BRIDGE) -> None:
-    """ip tuntap add `name` mode tap; attach to bridge; bring up."""
+def create_tap(name: str, node_id: int) -> None:
+    """ip tuntap add `name` mode tap; attach to per-node bridge; bring up."""
+    bridge = node_bridge_name(node_id)
     with IPRoute() as ipr:
         if _get_link_index(ipr, name) is None:
             ipr.link("add", ifname=name, kind="tuntap", mode="tap")
@@ -154,12 +198,12 @@ def delete_link(name: str) -> None:
             log.warning("failed to delete %s: %s", name, e)
 
 
-def teardown(node_count: int, *, bridge: str = DEFAULT_BRIDGE) -> None:
-    """Remove veth, tap, and bridge for nodes [0, node_count)."""
+def teardown(node_count: int) -> None:
+    """Remove veth, tap, and per-node bridges for nodes [0, node_count)."""
     for i in range(node_count):
         delete_link(f"veth{i}")
         delete_link(f"tap-{i}")
-    delete_link(bridge)
+        delete_link(node_bridge_name(i))
 
 
 @contextmanager

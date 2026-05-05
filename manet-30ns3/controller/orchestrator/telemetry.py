@@ -124,12 +124,22 @@ class Telemetry:
         # 节点对聚合：把 5-tuple flow 折叠成 (srcId, dstId) 维度
         ip_to_id = {spec.ip: spec.id for spec in self.specs_by_id.values()}
         pairs_out = _aggregate_pairs(sim_flows, ip_to_id)
+        env = self.sim.snapshot_env()
         return {
             "t": self.sim.elapsed,
             "running": self.sim.running,
             "nodes": nodes_out,
             "flows": [_flow_frame(f) for f in sim_flows],
             "pairs": pairs_out,
+            "env": {
+                "txPower": env.tx_power,
+                "rxSensitivity": env.rx_sensitivity,
+                "positions": env.positions,
+                "pathLossExponent": env.path_loss_exponent,
+                "frequencyMhz": env.frequency_mhz,
+                "channelWidthMhz": env.channel_width_mhz,
+                "rangeTargetM": env.range_target_m,
+            },
             "ts": time.time(),
         }
 

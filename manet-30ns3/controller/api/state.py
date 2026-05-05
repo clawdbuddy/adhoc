@@ -19,9 +19,8 @@ from controller.orchestrator import SimConfig, NodeSpec, PRESETS
 from controller.orchestrator.config import load_config, load_user_config
 from controller.orchestrator.docker_mgr import CONTAINER_PREFIX, DockerMgr
 from controller.orchestrator.netns import (
-    DEFAULT_BRIDGE,
     delete_link,
-    ensure_bridge,
+    node_bridge_name,
     teardown,
 )
 from controller.orchestrator.sim_runner import SimRunner
@@ -90,10 +89,7 @@ class Session:
         # 如果上次仿真崩溃留下了残留(docker 容器/网桥/tap/veth),先做一次 best-effort 清理
         _reap_orphans(cfg.n_nodes)
 
-        # 1. 创建网桥
-        ensure_bridge()
-
-        # 2. 启动容器（每次调用同时创建 veth 对 + tap，并将 veth 对端移入 netns）
+        # 1. 启动容器（每次调用同时创建每节点独立桥 + veth 对 + tap，并将 veth 对端移入 netns）
         docker_mgr = DockerMgr()
         try:
             docker_mgr.start_all(specs, cfg)
@@ -189,7 +185,9 @@ def _reap_orphans(expected_n: int) -> None:
     for i in range(upper):
         delete_link(f"veth{i}")
         delete_link(f"tap-{i}")
-    delete_link(DEFAULT_BRIDGE)
+        delete_link(node_bridge_name(i))
+    # 兼容旧版共享桥残留
+    delete_link("br-ns3")
 
 
 # ----- 路由使用的单例访问函数 -----------------------------------

@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import type { NodeStatus, FlowStats, NodePairFlow, SimulationStatus, SimConfig } from '@/types/config';
+import type { NodeStatus, FlowStats, NodePairFlow, SimulationStatus, SimConfig, TelemetryEnv } from '@/types/config';
 
 // API + WS 基础 URL。生产环境中 FastAPI 控制器与前端页面同源提供；
 // 开发模式下（vite 在 :3000）vite.config.ts 中的代理将 /api 和 /ws 转发到 localhost:8000。
@@ -16,6 +16,7 @@ interface TelemetryFrame {
   nodes: NodeStatus[];
   flows: FlowStats[];
   pairs?: NodePairFlow[];
+  env?: TelemetryEnv;
   ts: number;
 }
 
@@ -52,6 +53,7 @@ export function useSimulation(nNodes: number) {
   const [nodes, setNodes] = useState<NodeStatus[]>([]);
   const [flows, setFlows] = useState<FlowStats[]>([]);
   const [pairs, setPairs] = useState<NodePairFlow[]>([]);
+  const [env, setEnv] = useState<TelemetryEnv | null>(null);
   const [logs, setLogs] = useState<string[]>([]);
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -87,6 +89,7 @@ export function useSimulation(nNodes: number) {
         setNodes(frame.nodes ?? []);
         setFlows(frame.flows ?? []);
         setPairs(frame.pairs ?? []);
+        setEnv(frame.env ?? null);
         setStatus(prev => aggregateStatus(nNodes, frame, prev.startTime));
       } catch (e) {
         addLog(`[ws] parse failed: ${(e as Error).message}`);
@@ -147,5 +150,5 @@ export function useSimulation(nNodes: number) {
     }
   }, [addLog]);
 
-  return { status, nodes, flows, pairs, logs, startSimulation, stopSimulation, addLog };
+  return { status, nodes, flows, pairs, env, logs, startSimulation, stopSimulation, addLog };
 }

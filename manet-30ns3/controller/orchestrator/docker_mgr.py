@@ -88,17 +88,18 @@ class DockerMgr:
         if not pid:
             raise RuntimeError(f"容器 {name} 启动后没有 PID")
 
-        # 配置网络：创建 veth，将 peer 移入 netns，创建 tap
+        # 配置网络：创建每节点独立桥、veth，将 peer 移入 netns，创建 tap
         veth_host = f"veth{spec.id}"
         veth_peer = f"vethns{spec.id}"
         tap = f"tap-{spec.id}"
 
-        netns.create_veth(veth_host, veth_peer)
+        netns.ensure_node_bridge(spec.id)
+        netns.create_veth(veth_host, veth_peer, spec.id)
         netns.move_to_netns(
             veth_peer, pid,
             rename_to="eth0", ip=spec.ip, prefixlen=24,
         )
-        netns.create_tap(tap)
+        netns.create_tap(tap, spec.id)
 
         runtime = RuntimeNode(spec=spec, container_id=container.id, pid=pid, name=name)
         self._nodes[spec.id] = runtime
@@ -111,14 +112,15 @@ class DockerMgr:
             self.stop_one(nid)
 
     def stop_one(self, node_id: int) -> None:
-        """停止指定节点并清理其网络接口。"""
+        """停止指定节点并清理其网络接口与独立桥。"""
         rn = self._nodes.pop(node_id, None)
         if rn is None:
             return
         self._kill_stale(rn.name)
-        # 在宿主侧清理 veth/tap；控制器级别的 teardown 也会在 sim_stop 时运行
+        # 在宿主侧清理 veth/tap/桥；控制器级别的 teardown 也会在 sim_stop 时运行
         netns.delete_link(f"veth{node_id}")
         netns.delete_link(f"tap-{node_id}")
+        netns.delete_link(netns.node_bridge_name(node_id))
 
     def _kill_stale(self, name: str) -> None:
         """强制终止并删除同名残留容器。"""

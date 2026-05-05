@@ -15,7 +15,7 @@ import {
 import './App.css';
 
 // 构建时间戳：每次修改后更新，确保 Vite 内容哈希变化，避免浏览器缓存旧版本
-const BUILD_TIME = '2026-05-04-0905';
+const BUILD_TIME = '2026-05-05-0010';
 void BUILD_TIME;
 
 const NAV_ITEMS = [
@@ -33,7 +33,7 @@ function App() {
     loadPreset, resetToDefault, exportConfig, importConfig,
   } = useSimConfig();
 
-  const { status, nodes, flows, logs, startSimulation, stopSimulation, addLog } = useSimulation(config.nNodes);
+  const { status, nodes, flows, env, logs, startSimulation, stopSimulation, addLog } = useSimulation(config.nNodes);
 
   const [activePage, setActivePage] = useState<PageKey>('dashboard');
 
@@ -297,7 +297,7 @@ function App() {
 
           {activePage === 'dynamic' && (
             <div className="h-full overflow-auto p-3">
-              <DynamicControl status={status} nodes={nodes} />
+              <DynamicControl status={status} nodes={nodes} config={config} env={env} />
             </div>
           )}
 

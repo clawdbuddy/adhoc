@@ -2,17 +2,24 @@ import { useCallback } from 'react';
 
 const API_BASE = '';
 
-async function postJson(path: string, body: Record<string, unknown>) {
+export interface DynamicResult {
+  ok: boolean;
+  applied: boolean;
+  reason?: string;
+  [key: string]: unknown;
+}
+
+async function postJson(path: string, body: Record<string, unknown>): Promise<DynamicResult> {
   const res = await fetch(`${API_BASE}${path}`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify(body),
   });
+  const data = await res.json().catch(() => ({ ok: false }));
   if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`HTTP ${res.status}: ${text}`);
+    throw new Error(`HTTP ${res.status}: ${data.detail || JSON.stringify(data)}`);
   }
-  return res.json();
+  return data as DynamicResult;
 }
 
 export function useDynamicControl() {

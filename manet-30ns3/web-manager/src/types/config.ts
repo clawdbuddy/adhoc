@@ -138,6 +138,16 @@ export interface SimulationStatus {
   totalLost: number;
 }
 
+export interface TelemetryEnv {
+  txPower: number[];
+  rxSensitivity: number[];
+  positions: { x: number; y: number; z: number }[];
+  pathLossExponent: number;
+  frequencyMhz: number;
+  channelWidthMhz: number;
+  rangeTargetM: number;
+}
+
 export const STANDARDS = [
   '80211b', '80211a', '80211g',
   '80211n-2.4GHz', '80211n-5GHz',
