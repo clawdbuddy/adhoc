@@ -15,7 +15,7 @@ import {
 import './App.css';
 
 // 构建时间戳：每次修改后更新，确保 Vite 内容哈希变化，避免浏览器缓存旧版本
-const BUILD_TIME = '2026-05-05-0010';
+const BUILD_TIME = '2026-05-05-1025';
 void BUILD_TIME;
 
 const NAV_ITEMS = [

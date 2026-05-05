@@ -59,15 +59,15 @@ class SimConfig(_CamelModel):
 
     # PHY
     # phy_model="spectrum" 启用 SpectrumWifiPhy + MultiModelSpectrumChannel；
-    # frequency_mhz/channel_width_mhz 主要驱动 Friis 路径损耗（590 MHz UHF + 20 MHz 带宽）。
-    # 真实射频参数虽然落在 802.11a 5 GHz 内部表里，但传播损耗按 frequency_mhz 计算，
-    # 4 km LOS 的距离预算与 UHF 物理一致。
-    standard: Standard = "80211a"
+    # 默认使用 2.4 GHz WiFi 频段（802.11g Channel 1, 2412 MHz），确保 ns-3 PHY/MAC
+    # 工作在标准 WiFi 模式，避免非合法频段导致速率回退到 1 Mbps。
+    # 传播损耗按 frequency_mhz 计算，4 km LOS 预算与 2.4 GHz 物理一致。
+    standard: Standard = "80211g"
     phy_model: PhyModel = "spectrum"
-    frequency_mhz: int = 590
+    frequency_mhz: int = 2412
     channel_width_mhz: int = 20
     range_target_m: float = 4000.0
-    data_rate: str = "OfdmRate6Mbps"
+    data_rate: str = "ErpOfdmRate24Mbps"
     tx_power_start: float = 30.0
     tx_power_end: float = 30.0
     tx_power_levels: int = 1
