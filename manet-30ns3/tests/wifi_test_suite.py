@@ -374,7 +374,7 @@ def tc_distance_attenuation(runner: TestRunner) -> TestCaseResult:
                            f"loss={pr.loss_percent:.1f}%, avg RTT={pr.rtt_avg:.2f}ms")
 
             if pr.received > 0:
-                ir = runner.iperf3(0, dst, dst_ip, duration=5)
+                ir = runner.iperf3(0, dst, "192.168.100.10", duration=5)
                 mbps = ir.bits_per_second / 1e6
                 iperf_results[f"node0->node{dst}({dist_m}m)"] = {
                     "distanceM": dist_m,
@@ -423,7 +423,7 @@ def tc_adhoc_multihop(runner: TestRunner) -> TestCaseResult:
             hop_count = 0
 
         if pr.received > 0:
-            ir = runner.iperf3(0, 9, dst_ip, duration=15)
+            ir = runner.iperf3(0, 9, "192.168.100.10", duration=15)
             mbps = ir.bits_per_second / 1e6
             tc.logs.append(f"iperf3 node0->node9: {mbps:.2f} Mbps")
             tc.metrics = {

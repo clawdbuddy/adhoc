@@ -25,43 +25,45 @@ export function DynamicControl({ status, nodes, config, env }: DynamicControlPro
   const [selectedNode, setSelectedNode] = useState(0);
   const [posX, setPosX] = useState('');
   const [posY, setPosY] = useState('');
-  const [txPower, setTxPower] = useState([config.txPowerStart]);
-  const [rxSens, setRxSens] = useState([config.rxSensitivity]);
-  const [pathLossExp, setPathLossExp] = useState([config.pathLossExponent]);
-  const [frequency, setFrequency] = useState([config.frequencyMhz]);
-  const [channelWidth, setChannelWidth] = useState([config.channelWidthMhz]);
-  const [rangeTarget, setRangeTarget] = useState([config.rangeTargetM]);
+  // 所有动态参数的权威来源是后端遥测 env（通过 WebSocket）。
+  // config 仅作为组件首次挂载、env 尚未到达时的临时 fallback，
+  // 一旦 env 到达，立即切换到真实运行值。
+  const [txPower, setTxPower] = useState([env?.txPower[selectedNode] ?? config.txPowerStart]);
+  const [rxSens, setRxSens] = useState([env?.rxSensitivity[selectedNode] ?? config.rxSensitivity]);
+  const [pathLossExp, setPathLossExp] = useState([env?.pathLossExponent ?? config.pathLossExponent]);
+  const [frequency, setFrequency] = useState([env?.frequencyMhz ?? config.frequencyMhz]);
+  const [channelWidth, setChannelWidth] = useState([env?.channelWidthMhz ?? config.channelWidthMhz]);
+  const [rangeTarget, setRangeTarget] = useState([env?.rangeTargetM ?? config.rangeTargetM]);
 
-  // 当外部配置变化时（如加载新预设），同步滑块值
-  useEffect(() => {
-    setTxPower([config.txPowerStart]);
-    setRxSens([config.rxSensitivity]);
-    setPathLossExp([config.pathLossExponent]);
-    setFrequency([config.frequencyMhz]);
-    setChannelWidth([config.channelWidthMhz]);
-    setRangeTarget([config.rangeTargetM]);
-  }, [config]);
-
-  // 当切换节点时，从 nodes prop 同步当前位置到输入框
+  // 当切换节点时，从后端遥测 nodes/env 同步当前位置到输入框
   useEffect(() => {
     const node = nodes.find(n => n.id === selectedNode);
     if (node) {
       setPosX(node.x.toFixed(1));
       setPosY(node.y.toFixed(1));
     }
+    // 同时同步 per-node 参数
+    if (env) {
+      if (env.txPower[selectedNode] !== undefined) {
+        setTxPower([env.txPower[selectedNode]]);
+      }
+      if (env.rxSensitivity[selectedNode] !== undefined) {
+        setRxSens([env.rxSensitivity[selectedNode]]);
+      }
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedNode]);
+  }, [selectedNode, env]);
 
-  // 当遥测帧中的动态参数变化时（如通过其他客户端或 API 修改），同步滑块值与位置输入框
+  // 当遥测帧中的动态参数变化时（如通过其他客户端或 API 修改），同步滑块值与位置输入框。
+  // 首次收到 env（prevEnv 为 null）时总是同步；后续仅在非交互状态下同步，防止拖拽被重置。
+  const prevEnvRef = useRef<TelemetryEnv | null>(null);
   useEffect(() => {
     if (!env) return;
-    if (isDirty()) return; // 用户正在交互，暂停同步防止值被重置
-    if (env.txPower[selectedNode] !== undefined) {
-      setTxPower([env.txPower[selectedNode]]);
-    }
-    if (env.rxSensitivity[selectedNode] !== undefined) {
-      setRxSens([env.rxSensitivity[selectedNode]]);
-    }
+    const isFirstEnv = prevEnvRef.current === null;
+    prevEnvRef.current = env;
+
+    if (!isFirstEnv && isDirty()) return; // 用户正在交互，暂停同步防止值被重置
+
     setPathLossExp([env.pathLossExponent]);
     setFrequency([env.frequencyMhz]);
     setChannelWidth([env.channelWidthMhz]);
@@ -69,6 +71,12 @@ export function DynamicControl({ status, nodes, config, env }: DynamicControlPro
     if (env.positions?.[selectedNode]) {
       setPosX(env.positions[selectedNode].x.toFixed(1));
       setPosY(env.positions[selectedNode].y.toFixed(1));
+    }
+    if (env.txPower[selectedNode] !== undefined) {
+      setTxPower([env.txPower[selectedNode]]);
+    }
+    if (env.rxSensitivity[selectedNode] !== undefined) {
+      setRxSens([env.rxSensitivity[selectedNode]]);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [env, selectedNode]);

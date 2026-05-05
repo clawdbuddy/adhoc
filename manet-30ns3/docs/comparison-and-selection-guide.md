@@ -196,7 +196,58 @@
 
 ---
 
-## 五、版本路线图
+## 五、WiFi 测试套件失败分析与修复
+
+### 5.1 失败用例汇总
+
+| 测试用例 | 失败现象 | 根因 | 修复方案 | 对应 commit |
+|----------|---------|------|---------|------------|
+| `tc_frequency_5g` | node0→3/4 100% 丢包 | `rangeTargetM=300m`，节点 3 在 300m 边界、节点 4 在 400m 超出 Range 硬截断 | `wifi-band-test-5g` 预设 `rangeTargetM` 300→500m | 待提交 |
+| `tc_distance_attenuation` | node0→2/3/4 100% 丢包 | 20 dBm + 2 dBi + FreeSpace(refLoss=46.68 dB@1m) + rxSens=-82 dBm 的链路预算仅覆盖约 **933m**；1000m 处 Prx ≈ -82.68 dBm，刚好低于接收灵敏度 | `wifi-distance-test` 预设 `rxSensitivity` -82→-92 dBm，`antennaGain` 2→3 dBi（预算覆盖约 10km） | 待提交 |
+| `tc_adhoc_multihop` | node0→9 100% 丢包 | 同上预算不足；2700m 处 Prx ≈ -91.3 dBm << -82 dBm；iperf3 调用传了错误的 `server_ip` | `wifi-adhoc-multihop` 预设 `rxSensitivity` -82→-92 dBm，`antennaGain` 2→3 dBi；测试脚本修复 `iperf3(0, dst, "192.168.100.10")` | 待提交 |
+
+### 5.2 链路预算计算
+
+ns-3 `FriisPropagationLossModel` 使用参考距离法：
+
+```
+PL(d) = refLoss + 20·log10(d / refDistance)
+```
+
+默认 `refLoss=46.6777 dB`，`refDistance=1 m`。接收功率：
+
+```
+Prx = TxPower + Gt + Gr - PL(d)
+```
+
+| 参数 | 原始测试预设 | 修复后预设 |
+|------|-------------|-----------|
+| TxPower | 20 dBm | 20 dBm |
+| Antenna Gain | 2 dBi | **3 dBi** |
+| Rx Sensitivity | -82 dBm | **-92 dBm** |
+| 最大覆盖距离 | ~933 m | ~10 km |
+| 1000m 处 Prx | **-82.68 dBm** (< -82) | **-72.68 dBm** (> -92) |
+| 2700m 处 Prx | **-91.31 dBm** (< -82) | **-81.31 dBm** (> -92) |
+
+> **教训**：测试预设的链路预算必须与网格间距/节点数匹配。从默认值（30 dBm / -92 dBm / 3 dBi）改为“现实 WiFi”参数（20 dBm / -82 dBm / 2 dBi）时，预算缩减了约 22 dB，导致原本可达的距离变为不可达。距离测试和多跳测试需要保留足够的预算余量。
+
+### 5.3 iperf3 调用参数 bug
+
+`tc_distance_attenuation` 和 `tc_adhoc_multihop` 中的 `iperf3` 调用：
+
+```python
+# 错误：client 连接到了 dst_ip，但 server 在 node-0 上
+ir = runner.iperf3(0, dst, dst_ip, duration=5)
+
+# 正确：client 连接 server(node-0) 的 IP
+ir = runner.iperf3(0, dst, "192.168.100.10", duration=5)
+```
+
+此 bug 不影响 ping 结果，但导致 iperf3 吞吐量数据为 0。
+
+---
+
+## 六、版本路线图
 
 ### 短期（当前）
 - [x] NS-3.36 作为默认版本，完整功能验证

@@ -1,0 +1,318 @@
+[
+  {
+    "name": "TC-01: 2.4GHz 频段连通性",
+    "status": "pass",
+    "durationSec": 78.4,
+    "logs": [
+      "ping node0->node1: 10/10 recv, loss=0.0%, avg RTT=1.95ms",
+      "ping node0->node2: 10/10 recv, loss=0.0%, avg RTT=3.69ms",
+      "ping node0->node3: 10/10 recv, loss=0.0%, avg RTT=3.41ms",
+      "ping node0->node4: 10/10 recv, loss=0.0%, avg RTT=3.43ms"
+    ],
+    "metrics": {
+      "pings": {
+        "node0->node1": {
+          "sent": 10,
+          "received": 10,
+          "lossPercent": 0.0,
+          "rttAvgMs": 1.95
+        },
+        "node0->node2": {
+          "sent": 10,
+          "received": 10,
+          "lossPercent": 0.0,
+          "rttAvgMs": 3.69
+        },
+        "node0->node3": {
+          "sent": 10,
+          "received": 10,
+          "lossPercent": 0.0,
+          "rttAvgMs": 3.41
+        },
+        "node0->node4": {
+          "sent": 10,
+          "received": 10,
+          "lossPercent": 0.0,
+          "rttAvgMs": 3.43
+        }
+      }
+    },
+    "errors": []
+  },
+  {
+    "name": "TC-02: 5GHz 频段连通性",
+    "status": "fail",
+    "durationSec": 76.2,
+    "logs": [
+      "ping node0->node1: 10/10 recv, loss=0.0%, avg RTT=1.42ms",
+      "ping node0->node2: 10/10 recv, loss=0.0%, avg RTT=1.62ms",
+      "ping node0->node3: 0/10 recv, loss=100.0%, avg RTT=0.00ms",
+      "ping node0->node4: 0/10 recv, loss=100.0%, avg RTT=0.00ms"
+    ],
+    "metrics": {
+      "pings": {
+        "node0->node1": {
+          "sent": 10,
+          "received": 10,
+          "lossPercent": 0.0,
+          "rttAvgMs": 1.42
+        },
+        "node0->node2": {
+          "sent": 10,
+          "received": 10,
+          "lossPercent": 0.0,
+          "rttAvgMs": 1.62
+        },
+        "node0->node3": {
+          "sent": 10,
+          "received": 0,
+          "lossPercent": 100.0,
+          "rttAvgMs": 0.0
+        },
+        "node0->node4": {
+          "sent": 10,
+          "received": 0,
+          "lossPercent": 100.0,
+          "rttAvgMs": 0.0
+        }
+      }
+    },
+    "errors": []
+  },
+  {
+    "name": "TC-03: 20MHz 带宽吞吐量",
+    "status": "pass",
+    "durationSec": 103.6,
+    "logs": [
+      "iperf3 node1->node0: 0.47 Mbps, retransmits=0",
+      "iperf3 node2->node0: 0.43 Mbps, retransmits=0",
+      "iperf3 node3->node0: 0.47 Mbps, retransmits=0",
+      "iperf3 node4->node0: 0.43 Mbps, retransmits=0"
+    ],
+    "metrics": {
+      "iperf": {
+        "node1->node0": {
+          "bitsPerSecond": 466361.0891326752,
+          "mbps": 0.47,
+          "retransmits": 0
+        },
+        "node2->node0": {
+          "bitsPerSecond": 433320.20319251483,
+          "mbps": 0.43,
+          "retransmits": 0
+        },
+        "node3->node0": {
+          "bitsPerSecond": 472781.86765539827,
+          "mbps": 0.47,
+          "retransmits": 0
+        },
+        "node4->node0": {
+          "bitsPerSecond": 425268.80058872985,
+          "mbps": 0.43,
+          "retransmits": 0
+        }
+      }
+    },
+    "errors": []
+  },
+  {
+    "name": "TC-04: 40MHz 带宽吞吐量",
+    "status": "pass",
+    "durationSec": 102.4,
+    "logs": [
+      "iperf3 node1->node0: 0.45 Mbps, retransmits=0",
+      "iperf3 node2->node0: 0.44 Mbps, retransmits=0",
+      "iperf3 node3->node0: 0.47 Mbps, retransmits=0",
+      "iperf3 node4->node0: 0.45 Mbps, retransmits=0"
+    ],
+    "metrics": {
+      "iperf": {
+        "node1->node0": {
+          "bitsPerSecond": 452677.2669256948,
+          "mbps": 0.45,
+          "retransmits": 0
+        },
+        "node2->node0": {
+          "bitsPerSecond": 440055.72285550553,
+          "mbps": 0.44,
+          "retransmits": 0
+        },
+        "node3->node0": {
+          "bitsPerSecond": 467824.8293483929,
+          "mbps": 0.47,
+          "retransmits": 0
+        },
+        "node4->node0": {
+          "bitsPerSecond": 446936.0396708041,
+          "mbps": 0.45,
+          "retransmits": 0
+        }
+      }
+    },
+    "errors": []
+  },
+  {
+    "name": "TC-05: 通信距离衰减",
+    "status": "fail",
+    "durationSec": 80.8,
+    "logs": [
+      "ping node0->node1 (500m): 10/10 recv, loss=0.0%, avg RTT=4.07ms",
+      "  iperf3: 0.00 Mbps",
+      "ping node0->node2 (1000m): 0/10 recv, loss=100.0%, avg RTT=0.00ms",
+      "ping node0->node3 (1500m): 0/10 recv, loss=100.0%, avg RTT=0.00ms",
+      "ping node0->node4 (2000m): 0/10 recv, loss=100.0%, avg RTT=0.00ms"
+    ],
+    "metrics": {
+      "pings": {
+        "node0->node1(500m)": {
+          "distanceM": 500,
+          "sent": 10,
+          "received": 10,
+          "lossPercent": 0.0,
+          "rttAvgMs": 4.07
+        },
+        "node0->node2(1000m)": {
+          "distanceM": 1000,
+          "sent": 10,
+          "received": 0,
+          "lossPercent": 100.0,
+          "rttAvgMs": 0.0
+        },
+        "node0->node3(1500m)": {
+          "distanceM": 1500,
+          "sent": 10,
+          "received": 0,
+          "lossPercent": 100.0,
+          "rttAvgMs": 0.0
+        },
+        "node0->node4(2000m)": {
+          "distanceM": 2000,
+          "sent": 10,
+          "received": 0,
+          "lossPercent": 100.0,
+          "rttAvgMs": 0.0
+        }
+      },
+      "iperf": {
+        "node0->node1(500m)": {
+          "distanceM": 500,
+          "mbps": 0.0
+        }
+      }
+    },
+    "errors": []
+  },
+  {
+    "name": "TC-06: Adhoc 大规模拓扑",
+    "status": "fail",
+    "durationSec": 74.1,
+    "logs": [
+      "ping node0->node9 (2700m): 0/10 recv, loss=100.0%, avg RTT=0.00ms",
+      "traceroute output:",
+      "  traceroute to 192.168.100.19 (192.168.100.19), 10 hops max, 60 byte packets",
+      "  1  192.168.100.10  3079.091 ms !H  3079.040 ms !H  3079.033 ms !H"
+    ],
+    "metrics": {
+      "ping": {
+        "received": 0,
+        "sent": 10,
+        "lossPercent": 100.0
+      },
+      "tracerouteHops": 0
+    },
+    "errors": []
+  },
+  {
+    "name": "TC-07: 广播覆盖",
+    "status": "pass",
+    "durationSec": 35.9,
+    "logs": [
+      "broadcast ping from node0: WARNING: pinging broadcast address\nPING 192.168.100.255 (192.168.100.255) 56(84) bytes of data.\n64 bytes from 192.168.100.10: icmp_seq=1 ttl=64 time=0.024 ms\n64 bytes from 192.168.100.11: icmp_seq=1 t",
+      "node1 reachable neighbors: 1",
+      "node2 reachable neighbors: 1",
+      "node3 reachable neighbors: 1",
+      "node4 reachable neighbors: 1"
+    ],
+    "metrics": {
+      "arp": {
+        "node1": {
+          "reachableNeighbors": 1
+        },
+        "node2": {
+          "reachableNeighbors": 1
+        },
+        "node3": {
+          "reachableNeighbors": 1
+        },
+        "node4": {
+          "reachableNeighbors": 1
+        }
+      }
+    },
+    "errors": []
+  },
+  {
+    "name": "TC-08: 2.4GHz 多信道遍历",
+    "status": "pass",
+    "durationSec": 177.6,
+    "logs": [
+      "2412MHz: node0->node1 recv=5/5, node0->node2 recv=5/5",
+      "2437MHz: node0->node1 recv=5/5, node0->node2 recv=5/5",
+      "2462MHz: node0->node1 recv=5/5, node0->node2 recv=5/5",
+      "2472MHz: node0->node1 recv=5/5, node0->node2 recv=5/5"
+    ],
+    "metrics": {
+      "pings": {
+        "2412MHz": {
+          "node0->node1": {
+            "sent": 5,
+            "received": 5,
+            "lossPercent": 0.0
+          },
+          "node0->node2": {
+            "sent": 5,
+            "received": 5,
+            "lossPercent": 0.0
+          }
+        },
+        "2437MHz": {
+          "node0->node1": {
+            "sent": 5,
+            "received": 5,
+            "lossPercent": 0.0
+          },
+          "node0->node2": {
+            "sent": 5,
+            "received": 5,
+            "lossPercent": 0.0
+          }
+        },
+        "2462MHz": {
+          "node0->node1": {
+            "sent": 5,
+            "received": 5,
+            "lossPercent": 0.0
+          },
+          "node0->node2": {
+            "sent": 5,
+            "received": 5,
+            "lossPercent": 0.0
+          }
+        },
+        "2472MHz": {
+          "node0->node1": {
+            "sent": 5,
+            "received": 5,
+            "lossPercent": 0.0
+          },
+          "node0->node2": {
+            "sent": 5,
+            "received": 5,
+            "lossPercent": 0.0
+          }
+        }
+      }
+    },
+    "errors": []
+  }
+]
