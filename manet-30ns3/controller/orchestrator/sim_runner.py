@@ -367,6 +367,7 @@ class SimRunner:
             mac.SetType(
                 "ns3::AdhocWifiMac",
                 "Ssid", ns.wifi.SsidValue(ns.wifi.Ssid(cfg.ssid)),
+                "QosSupported", ns.core.BooleanValue(True),
             )
             devices = wifi.Install(phy, mac, nodes)
             self._mac_mode_actual = "adhoc"

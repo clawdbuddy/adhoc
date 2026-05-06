@@ -242,10 +242,12 @@ PRESETS: dict[str, SimConfig] = {
     # 冒烟测试——5 节点 / 短时长 / 小活动区 / 关闭衰落 / 关闭 mesh 退回 ad-hoc。
     "debug": _preset(
         nNodes=5, simulationTime=60,
-        ssid="adhoc-debug",
-        macMode="adhoc",
+        ssid="mesh-debug",
+        macMode="mesh",
         routingProtocol="none",
         phyModel="yans",
+        standard="80211n-2.4GHz",
+        dataRate="HtMcs7",
         mobilityModel="grid",
         mobilityMaxX=300.0, mobilityMaxY=300.0,
         gridMinX=10.0, gridMinY=10.0,
