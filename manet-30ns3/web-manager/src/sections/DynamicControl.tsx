@@ -10,7 +10,7 @@ import { useDynamicControl } from '@/hooks/useDynamicControl';
 import type { NodeStatus, SimulationStatus, SimConfig, TelemetryEnv } from '@/types/config';
 import {
   Zap, MapPin, Radio, Activity, Settings2,
-  Send, CheckCircle, AlertCircle
+  Send, CheckCircle, AlertCircle, Info
 } from 'lucide-react';
 
 interface DynamicControlProps {
@@ -126,6 +126,14 @@ export function DynamicControl({ status, nodes, config, env }: DynamicControlPro
         </div>
       )}
 
+      <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-slate-700 text-xs flex items-start gap-2">
+        <Info className="h-4 w-4 shrink-0 mt-0.5" />
+        <span>
+          所有动态参数均作用于 <strong>ns-3 Controller</strong> 仿真层（传播模型 / PHY / MAC），
+          不会下发到节点容器。
+        </span>
+      </div>
+
       {/* Node Selector */}
       <Card>
         <CardHeader className="pb-2">
@@ -164,6 +172,7 @@ export function DynamicControl({ status, nodes, config, env }: DynamicControlPro
             <CardTitle className="text-sm flex items-center gap-2">
               <MapPin className="h-4 w-4" />
               节点位置跃迁
+              <Badge variant="secondary" className="text-[10px] px-1 py-0 h-4 ml-auto">ns-3</Badge>
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
@@ -212,6 +221,7 @@ export function DynamicControl({ status, nodes, config, env }: DynamicControlPro
             <CardTitle className="text-sm flex items-center gap-2">
               <Zap className="h-4 w-4" />
               发射功率
+              <Badge variant="secondary" className="text-[10px] px-1 py-0 h-4 ml-auto">ns-3</Badge>
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
@@ -249,6 +259,7 @@ export function DynamicControl({ status, nodes, config, env }: DynamicControlPro
             <CardTitle className="text-sm flex items-center gap-2">
               <Activity className="h-4 w-4" />
               接收灵敏度
+              <Badge variant="secondary" className="text-[10px] px-1 py-0 h-4 ml-auto">ns-3</Badge>
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
@@ -286,6 +297,7 @@ export function DynamicControl({ status, nodes, config, env }: DynamicControlPro
             <CardTitle className="text-sm flex items-center gap-2">
               <Radio className="h-4 w-4" />
               路径损耗指数
+              <Badge variant="secondary" className="text-[10px] px-1 py-0 h-4 ml-auto">ns-3</Badge>
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
@@ -323,6 +335,7 @@ export function DynamicControl({ status, nodes, config, env }: DynamicControlPro
             <CardTitle className="text-sm flex items-center gap-2">
               <Radio className="h-4 w-4" />
               中心频率
+              <Badge variant="secondary" className="text-[10px] px-1 py-0 h-4 ml-auto">ns-3</Badge>
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
@@ -360,9 +373,13 @@ export function DynamicControl({ status, nodes, config, env }: DynamicControlPro
             <CardTitle className="text-sm flex items-center gap-2">
               <Radio className="h-4 w-4" />
               信道宽度
+              <Badge variant="secondary" className="text-[10px] px-1 py-0 h-4 ml-auto">ns-3</Badge>
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
+            <p className="text-xs text-amber-600">
+              运行时修改不生效，需重启仿真才能应用
+            </p>
             <div className="flex items-center justify-between">
               <span className="text-xs text-muted-foreground">5 MHz</span>
               <Badge variant="outline" className="font-mono">{channelWidth[0]} MHz</Badge>
@@ -397,6 +414,7 @@ export function DynamicControl({ status, nodes, config, env }: DynamicControlPro
             <CardTitle className="text-sm flex items-center gap-2">
               <Radio className="h-4 w-4" />
               最大通信距离 (Range 模型)
+              <Badge variant="secondary" className="text-[10px] px-1 py-0 h-4 ml-auto">ns-3</Badge>
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">

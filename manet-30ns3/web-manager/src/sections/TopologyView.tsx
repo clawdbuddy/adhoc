@@ -298,8 +298,9 @@ export function TopologyView({ nodes, flows, running, compact }: TopologyViewPro
     const canvas = canvasRef.current;
     if (!canvas || !running) return;
     const [cx, cy] = eventCoords(e);
-    const g = computeGeom(canvas, nodes);
-    const hit = findNodeAt(nodes, g, cx, cy);
+    const viewNodes = applyDragOverride(nodes, drag);
+    const g = computeGeom(canvas, viewNodes);
+    const hit = findNodeAt(viewNodes, g, cx, cy);
     if (!hit) return;
     setDrag({ nodeId: hit.id, simX: hit.x, simY: hit.y, moved: false });
   };
@@ -308,12 +309,13 @@ export function TopologyView({ nodes, flows, running, compact }: TopologyViewPro
     const canvas = canvasRef.current;
     if (!canvas) return;
     const [cx, cy] = eventCoords(e);
-    const g = computeGeom(canvas, nodes);
+    const viewNodes = applyDragOverride(nodes, drag);
+    const g = computeGeom(canvas, viewNodes);
     if (drag) {
       const [sx, sy] = canvasToSim(g, cx, cy);
       setDrag({ ...drag, simX: sx, simY: sy, moved: true });
     } else {
-      const hit = findNodeAt(nodes, g, cx, cy);
+      const hit = findNodeAt(viewNodes, g, cx, cy);
       const id = hit ? hit.id : null;
       if (id !== hoverId) setHoverId(id);
     }
