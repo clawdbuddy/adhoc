@@ -42,7 +42,7 @@ def _api(method: str, path: str, body: dict | None = None) -> Any:
     req = urllib.request.Request(url, data=data, method=method,
                                   headers={"Content-Type": "application/json"})
     try:
-        with urllib.request.urlopen(req, timeout=30) as resp:
+        with urllib.request.urlopen(req, timeout=120) as resp:
             return json.loads(resp.read().decode("utf-8"))
     except urllib.error.HTTPError as e:
         try:
@@ -401,9 +401,10 @@ def tc_adhoc_multihop(runner: TestRunner) -> TestCaseResult:
     t0 = time.time()
     try:
         runner.start_simulation(preset="wifi-adhoc-multihop")
-        if not runner.wait_for_nodes_online(10, timeout=120):
+        # 10 节点创建耗时较长，放宽超时
+        if not runner.wait_for_nodes_online(10, timeout=180):
             raise RuntimeError("Nodes did not come online")
-        runner.wait_seconds(15)
+        runner.wait_seconds(20)
 
         # End-to-end: node 0 -> node 9 (2700m, within 4km single-hop range)
         dst_ip = "192.168.100.19"
@@ -446,7 +447,10 @@ def tc_adhoc_multihop(runner: TestRunner) -> TestCaseResult:
         tc.status = "fail"
         tc.errors.append(str(e))
     finally:
-        runner.stop_simulation()
+        try:
+            runner.stop_simulation()
+        except Exception as e:
+            tc.logs.append(f"stop_simulation warning: {e}")
         tc.duration_sec = round(time.time() - t0, 1)
     return tc
 

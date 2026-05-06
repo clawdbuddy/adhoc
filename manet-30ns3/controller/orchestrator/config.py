@@ -411,7 +411,7 @@ PRESETS: dict[str, SimConfig] = {
         dataRate="ErpOfdmRate24Mbps",
         macMode="adhoc",
         routingProtocol="aodv",
-        txPowerStart=20.0, txPowerEnd=20.0,
+        txPowerStart=25.0, txPowerEnd=25.0,
         rxSensitivity=-92.0,
         antennaGain=3.0,
         pathLossModel="FreeSpace",
