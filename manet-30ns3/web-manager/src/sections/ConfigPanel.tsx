@@ -15,7 +15,7 @@ import {
 } from '@/types/config';
 import type { SimConfig } from '@/types/config';
 import { PRESET_NAMES } from '@/hooks/useSimConfig';
-import { Save, RotateCcw, Download, Upload, Radio, Wifi, Route, MapPin, BarChart3 } from 'lucide-react';
+import { Save, RotateCcw, Download, Upload, Radio, Wifi, Route, MapPin, BarChart3, AlertTriangle } from 'lucide-react';
 
 interface ConfigPanelProps {
   config: SimConfig;
@@ -59,20 +59,31 @@ export function ConfigPanel({
 
   return (
     <div className="space-y-6">
+      {/* Bandwidth limit warning */}
+      <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-amber-800 text-sm flex items-center gap-2">
+        <AlertTriangle className="h-4 w-4 shrink-0" />
+        <span>
+          当前 BestEffort 模式下建议测试速率 <strong>≤ 6 Mbps</strong>，超过此速率可能导致严重丢包。
+          如需更高带宽，请关闭跟踪选项（PCAP / ASCII / 移动性跟踪）并减少节点数量。
+        </span>
+      </div>
+
       {/* Presets & Actions */}
       <div className="flex flex-wrap items-center gap-3">
         <span className="text-sm text-muted-foreground">预设:</span>
         {presets ? (
-          Object.keys(presets).map(key => (
-            <Button
-              key={key}
-              variant={activePreset === key ? 'default' : 'outline'}
-              size="sm"
-              onClick={() => loadPreset(key)}
-            >
-              {PRESET_NAMES[key] || key}
-            </Button>
-          ))
+          Object.keys(presets)
+            .filter(key => !key.startsWith('wifi-'))
+            .map(key => (
+              <Button
+                key={key}
+                variant={activePreset === key ? 'default' : 'outline'}
+                size="sm"
+                onClick={() => loadPreset(key)}
+              >
+                {PRESET_NAMES[key] || key}
+              </Button>
+            ))
         ) : (
           <span className="text-xs text-muted-foreground">加载中...</span>
         )}
