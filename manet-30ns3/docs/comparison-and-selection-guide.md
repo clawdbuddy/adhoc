@@ -198,13 +198,28 @@
 
 ## 五、WiFi 测试套件失败分析与修复
 
-### 5.1 失败用例汇总
+### 5.1 最终测试结果
+
+**8 passed, 0 failed**（2026-05-06 验证通过）
+
+| 测试用例 | 结果 | 关键指标 |
+|----------|------|---------|
+| `tc_frequency_2_4g` | **PASS** | ping 0→1..4: 10/10 recv, RTT ~2-5ms |
+| `tc_frequency_5g` | **PASS** | ping 0→1..4: 10/10 recv, RTT ~1-2ms |
+| `tc_bandwidth_20m` | **PASS** | iperf3 0.44-0.48 Mbps, retransmits=0 |
+| `tc_bandwidth_40m` | **PASS** | iperf3 0.44-0.47 Mbps, retransmits=0 |
+| `tc_distance_attenuation` | **PASS** | 500-2000m 全通, iperf3 ~0.48 Mbps |
+| `tc_adhoc_multihop` | **PASS** | 2700m 单跳直达, traceroute 1 hop, iperf3 0.50 Mbps |
+| `tc_broadcast` | **PASS** | 广播覆盖正常 |
+| `tc_frequency_sweep` | **PASS** | 2412/2437/2462/2472MHz 全通 |
+
+### 5.2 失败用例汇总（修复前）
 
 | 测试用例 | 失败现象 | 根因 | 修复方案 | 对应 commit |
 |----------|---------|------|---------|------------|
-| `tc_frequency_5g` | node0→3/4 100% 丢包 | `rangeTargetM=300m`，节点 3 在 300m 边界、节点 4 在 400m 超出 Range 硬截断 | `wifi-band-test-5g` 预设 `rangeTargetM` 300→500m | 待提交 |
-| `tc_distance_attenuation` | node0→2/3/4 100% 丢包 | 20 dBm + 2 dBi + FreeSpace(refLoss=46.68 dB@1m) + rxSens=-82 dBm 的链路预算仅覆盖约 **933m**；1000m 处 Prx ≈ -82.68 dBm，刚好低于接收灵敏度 | `wifi-distance-test` 预设 `rxSensitivity` -82→-92 dBm，`antennaGain` 2→3 dBi（预算覆盖约 10km） | 待提交 |
-| `tc_adhoc_multihop` | node0→9 100% 丢包 | 同上预算不足；2700m 处 Prx ≈ -91.3 dBm << -82 dBm；iperf3 调用传了错误的 `server_ip` | `wifi-adhoc-multihop` 预设 `rxSensitivity` -82→-92 dBm，`antennaGain` 2→3 dBi；测试脚本修复 `iperf3(0, dst, "192.168.100.10")` | 待提交 |
+| `tc_frequency_5g` | node0→3/4 100% 丢包 | `rangeTargetM=300m`，节点 3 在 300m 边界、节点 4 在 400m 超出 Range 硬截断 | `wifi-band-test-5g` 预设 `rangeTargetM` 300→500m | b40c1db |
+| `tc_distance_attenuation` | node0→2/3/4 100% 丢包 | 20 dBm + 2 dBi + FreeSpace(refLoss=46.68 dB@1m) + rxSens=-82 dBm 的链路预算仅覆盖约 **933m**；1000m 处 Prx ≈ -82.68 dBm，刚好低于接收灵敏度 | `wifi-distance-test` 预设 `rxSensitivity` -82→-92 dBm，`antennaGain` 2→3 dBi | b40c1db |
+| `tc_adhoc_multihop` | node0→9 100% 丢包 | 预算不足 + 24Mbps OFDM 在 2700m 处 SNR 刚好不够；iperf3 调用传了错误的 `server_ip`；API 30s 超时导致 10 节点启动失败 | `wifi-adhoc-multihop` 预设 `rxSensitivity` -82→-92 dBm，`antennaGain` 2→3 dBi，`txPower` 20→25 dBm；修复 `iperf3` server_ip；API 超时 30→120s | 2fec89c |
 
 ### 5.2 链路预算计算
 
