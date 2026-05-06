@@ -314,15 +314,18 @@ class SimRunner:
     def _build_and_run(self, ns: Any) -> None:
         cfg = self.config
 
-        # 1. Realtime simulator + RNG
-        ns.core.GlobalValue.Bind(
-            "SimulatorImplementationType",
-            ns.core.StringValue("ns3::RealtimeSimulatorImpl"),
-        )
-        ns.core.Config.Set(
-            "ns3::RealtimeSimulatorImpl::SynchronizationMode",
-            ns.core.StringValue("HardLimit"),
-        )
+        # 1. BestEffort simulator (非实时，CPU 全速推进，验证纯 ns-3 内部吞吐量上限)
+        # 注：RealtimeSimulatorImpl 受 wall-time 约束，TAP 桥接下带宽上限约 1.5-2Mbps。
+        # 切回默认 BestEffort 以验证理论带宽，但 sim-time 与 wall-time 不同步，
+        # iperf3 等 wall-time 工具的统计口径会失真，需以 ns-3 FlowMonitor 为准。
+        # ns.core.GlobalValue.Bind(
+        #     "SimulatorImplementationType",
+        #     ns.core.StringValue("ns3::RealtimeSimulatorImpl"),
+        # )
+        # ns.core.Config.Set(
+        #     "ns3::RealtimeSimulatorImpl::SynchronizationMode",
+        #     ns.core.StringValue("HardLimit"),
+        # )
         ns.core.GlobalValue.Bind("ChecksumEnabled", ns.core.BooleanValue(True))
         ns.core.RngSeedManager.SetSeed(cfg.seed)
         ns.core.RngSeedManager.SetRun(cfg.run)

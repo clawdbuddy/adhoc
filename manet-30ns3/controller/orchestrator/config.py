@@ -242,8 +242,8 @@ PRESETS: dict[str, SimConfig] = {
     # 冒烟测试——5 节点 / 短时长 / 小活动区 / 关闭衰落 / 关闭 mesh 退回 ad-hoc。
     "debug": _preset(
         nNodes=5, simulationTime=60,
-        ssid="mesh-debug",
-        macMode="mesh",
+        ssid="adhoc-debug",
+        macMode="adhoc",
         routingProtocol="none",
         phyModel="yans",
         standard="80211n-2.4GHz",
@@ -253,9 +253,9 @@ PRESETS: dict[str, SimConfig] = {
         gridMinX=10.0, gridMinY=10.0,
         gridDeltaX=50.0, gridDeltaY=50.0, gridWidth=5,
         rangeTargetM=200.0,
-        ascii=True,
-        pcapPrefix="manet-debug",
-        enableMobilityTrace=True,
+        ascii=False,
+        pcap=False,
+        enableMobilityTrace=False,
     ),
 
     # 战术场景——10 节点 / UHF 590 MHz / 20 MHz 信道 / 6 Mbps / 4 km 视距。
