@@ -38,6 +38,7 @@ export const PRESET_NAMES: Record<string, string> = {
   rural: '乡村 / 开阔地带',
   debug: '调试 / 最小配置',
   tactical: '战术 / 10节点',
+  throughput: '极限吞吐 / 2节点',
 };
 
 export function useSimConfig() {
