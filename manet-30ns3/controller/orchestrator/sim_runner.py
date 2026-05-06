@@ -1086,7 +1086,9 @@ class SimRunner:
                 with self._lock:
                     n_nodes = self.config.n_nodes
                     tap_prefix = self.config.tap_prefix
-                    max_range = self.config.range_target_m
+                    # 必须用 _env_state.range_target_m（动态控制可能已修改），
+                    # 不能用 self.config.range_target_m（启动时的静态快照）。
+                    max_range = self._env_state.range_target_m
                     # 2a. 位置
                     for i in range(n_nodes):
                         node = self._nodes_container.Get(i)
