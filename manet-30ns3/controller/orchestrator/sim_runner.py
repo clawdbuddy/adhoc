@@ -416,8 +416,9 @@ class SimRunner:
         self._schedule_periodic(ns, nodes, period_s=1.0)
 
         # 14. Run!
-        ns.core.Simulator.Stop(ns.core.Seconds(cfg.simulation_time))
-        log.info("Simulator.Run() begin (T=%.0fs)", cfg.simulation_time)
+        # 不再预设自动停止时间；仿真持续运行直到用户手动调用 stop()。
+        # simulation_time 仅作为配置参考，不再调度 Simulator.Stop()。
+        log.info("Simulator.Run() begin (manual stop mode)")
         ns.core.Simulator.Run()
         log.info("Simulator.Run() end")
 
