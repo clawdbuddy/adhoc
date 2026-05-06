@@ -25,67 +25,30 @@ from .config import SimConfig
 log = logging.getLogger(__name__)
 
 
-class _CppyyModuleProxy:
-    """让 cppyy 的扁平命名空间也能支持 `ns.core.Simulator` 这种子模块写法。"""
-
-    def __init__(self, ns):
-        self._ns = ns
-
-    def __getattr__(self, name):
-        return getattr(self._ns, name)
-
-
-class _CppyyNsWrapper:
-    """包装 cppyy.gbl.ns3，优先扁平访问，缺失时回退到子模块代理。"""
-
-    def __init__(self, ns):
-        self._ns = ns
-        self._proxies: dict[str, Any] = {}
-
-    def __getattr__(self, name):
-        if hasattr(self._ns, name):
-            return getattr(self._ns, name)
-        if name not in self._proxies:
-            self._proxies[name] = _CppyyModuleProxy(self._ns)
-        return self._proxies[name]
-
-
 def _import_ns():
-    """惰性导入 ns-3 绑定；将 ImportError 推迟到仿真真正启动时。
+    """惰性导入 ns-3 pybindgen 绑定；将 ImportError 推迟到仿真真正启动时。
 
-    本工程有两条部署路径,Python 绑定机制不同,这里 try/except 双路径兼容:
-
-    1) cppyy 路线（NS-3.40+ / NS-3.47 Docker 镜像）:
-       `from ns import ns` 拿到 cppyy 暴露的统一 C++ 命名空间对象;
-       所有类都直接挂在 ns3 命名空间下（如 ns.Simulator）。
-       用 _CppyyNsWrapper 包装后，现有代码里的 `ns.core.Simulator`
-       等子模块写法无需改动。
-    2) pybindgen 路线（Docker 镜像内 NS-3.36 源码编译）:
-       build 出来的 `ns/__init__.py` 是空文件,必须为每个用到的子模块
-       显式 `import ns.X`,才会把它注入到 `ns` 包命名空间下;
-       完成后 `ns.core.Simulator` 这种统一访问才不会 AttributeError。
+    NS-3.36 源码编译出的 `ns/__init__.py` 是空文件，必须为每个用到的子模块
+    显式 `import ns.X`，才会把它注入到 `ns` 包命名空间下；
+    完成后 `ns.core.Simulator` 这种统一访问才不会 AttributeError。
     """
-    try:
-        from ns import ns  # noqa: WPS433 — cppyy 统一命名空间
-        return _CppyyNsWrapper(ns)
-    except ImportError:
-        import ns  # noqa: WPS433
-        import ns.core  # noqa: F401, WPS433
-        import ns.network  # noqa: F401, WPS433
-        import ns.internet  # noqa: F401, WPS433
-        import ns.wifi  # noqa: F401, WPS433
-        import ns.mobility  # noqa: F401, WPS433
-        import ns.tap_bridge  # noqa: F401, WPS433
-        import ns.flow_monitor  # noqa: F401, WPS433
-        import ns.propagation  # noqa: F401, WPS433
-        import ns.spectrum  # noqa: F401, WPS433
-        import ns.aodv  # noqa: F401, WPS433
-        import ns.olsr  # noqa: F401, WPS433
-        import ns.dsdv  # noqa: F401, WPS433
-        import ns.dsr  # noqa: F401, WPS433
-        import ns.mesh  # noqa: F401, WPS433
-        import ns.applications  # noqa: F401, WPS433
-        return ns
+    import ns  # noqa: WPS433
+    import ns.core  # noqa: F401, WPS433
+    import ns.network  # noqa: F401, WPS433
+    import ns.internet  # noqa: F401, WPS433
+    import ns.wifi  # noqa: F401, WPS433
+    import ns.mobility  # noqa: F401, WPS433
+    import ns.tap_bridge  # noqa: F401, WPS433
+    import ns.flow_monitor  # noqa: F401, WPS433
+    import ns.propagation  # noqa: F401, WPS433
+    import ns.spectrum  # noqa: F401, WPS433
+    import ns.aodv  # noqa: F401, WPS433
+    import ns.olsr  # noqa: F401, WPS433
+    import ns.dsdv  # noqa: F401, WPS433
+    import ns.dsr  # noqa: F401, WPS433
+    import ns.mesh  # noqa: F401, WPS433
+    import ns.applications  # noqa: F401, WPS433
+    return ns
 
 
 @dataclass
@@ -1063,7 +1026,7 @@ class SimRunner:
                 if runner._fm is not None:
                     runner._fm.CheckForLostPackets()
                     stats = runner._fm.GetFlowStats()
-                    # pybindgen/cppyy 绑定中 GetClassifier 可能缺失，跳过源/目的解析
+                    # pybindgen 绑定中 GetClassifier 可能缺失，跳过源/目的解析
                     classifier = None
                     if hasattr(runner._fm, "GetClassifier"):
                         classifier = runner._fm.GetClassifier()

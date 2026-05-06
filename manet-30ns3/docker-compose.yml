@@ -14,8 +14,8 @@ version: '3.8'
 # Bring up:
 #   docker compose build node-image-builder ns3-controller
 #   docker compose up -d ns3-controller
-#   curl localhost:8000/api/health
-#   curl -XPOST localhost:8000/api/sim/start \
+#   curl localhost:7000/api/health
+#   curl -XPOST localhost:7000/api/sim/start \
 #        -H 'content-type: application/json' \
 #        -d '{"preset":"debug"}'
 # ---------------------------------------------------------------------------
@@ -25,8 +25,8 @@ services:
     build:
       context: .
       dockerfile: ns3-controller/Dockerfile.controller
-    image: ns3-controller:latest
-    container_name: ns3-controller
+    image: ns3-controller336:latest
+    container_name: ns3-controller336
     privileged: true
     network_mode: host
     pid: host
@@ -48,27 +48,6 @@ services:
       - ./config:/app/config
     restart: unless-stopped
 
-  # NS-3.47 变体（cppyy 绑定）。默认 `docker compose up` 不拉取，必须用 profile 启用：
-  #   docker compose --profile v347 build ns3-controller-347
-  #   docker compose --profile v347 up   -d ns3-controller-347
-  # 与 ns3-controller (3.36) 共享 br-ns3 / tap / veth 这一套全局网络资源，
-  # 同一时刻只能让一个 controller 跑仿真，否则会互踩。
-  ns3-controller-347:
-    profiles: ["v347"]
-    build:
-      context: .
-      dockerfile: ns3-controller/Dockerfile.controller.347
-    image: ns3-controller:3.47
-    container_name: ns3-controller-347
-    privileged: true
-    network_mode: host
-    pid: host
-    cap_add:
-      - NET_ADMIN
-      - NET_RAW
-      - SYS_ADMIN
-    environment:
-      - LOG_LEVEL=INFO
       - MANET_WEB_DIR=/app/dist
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock

@@ -102,10 +102,10 @@ jobs:
           cache-to: type=gha,mode=max,scope=node-image
 
   # ---------------------------------------------------------------------------
-  # 3. ns3-controller 多版本矩阵构建（3.36 pybindgen / 3.47 cppyy）
+  # 3. ns3-controller 构建（NS-3.36 + pybindgen）
   # ---------------------------------------------------------------------------
   controller-image:
-    name: Build ns3-controller (${{ matrix.ns3_version }})
+    name: Build ns3-controller
     runs-on: ubuntu-latest
     needs: frontend
     timeout-minutes: 120
@@ -115,10 +115,7 @@ jobs:
         include:
           - ns3_version: "3.36"
             dockerfile: ns3-controller/Dockerfile.controller
-            image_name: adhoc-controller
-          - ns3_version: "3.47"
-            dockerfile: ns3-controller/Dockerfile.controller.347
-            image_name: adhoc-controller-347
+            image_name: adhoc-controller-336
     steps:
       - uses: actions/checkout@v4
 
@@ -190,8 +187,7 @@ jobs:
           echo "| 组件 | 镜像 | NS-3 版本 | 绑定后端 |" >> RELEASE_NOTES.md
           echo "|------|------|-----------|----------|" >> RELEASE_NOTES.md
           echo "| 节点 | \`ghcr.io/${{ github.repository_owner }}/adhoc-node:${{ github.ref_name }}\` | — | — |" >> RELEASE_NOTES.md
-          echo "| 控制器 | \`ghcr.io/${{ github.repository_owner }}/adhoc-controller:${{ github.ref_name }}\` | 3.36 | pybindgen |" >> RELEASE_NOTES.md
-          echo "| 控制器 | \`ghcr.io/${{ github.repository_owner }}/adhoc-controller-347:${{ github.ref_name }}\` | 3.47 | cppyy |" >> RELEASE_NOTES.md
+          echo "| 控制器 | \`ghcr.io/${{ github.repository_owner }}/adhoc-controller-336:${{ github.ref_name }}\` | 3.36 | pybindgen |" >> RELEASE_NOTES.md
           echo "" >> RELEASE_NOTES.md
           echo "### Changelog" >> RELEASE_NOTES.md
           if [ -n "$PREV_TAG" ]; then

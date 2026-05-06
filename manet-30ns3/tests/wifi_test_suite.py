@@ -9,7 +9,7 @@
 
 前置条件:
     - ns3-controller 容器已启动 (docker compose up -d ns3-controller)
-    - 宿主机可访问 localhost:8000
+    - 宿主机可访问 localhost:7000
 """
 from __future__ import annotations
 
@@ -30,7 +30,7 @@ log = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 
 RESULTS_DIR = Path(__file__).parent.parent / "test-results"
-CONTROLLER_URL = "http://localhost:8000"
+CONTROLLER_URL = "http://localhost:7000"
 
 
 # ---------------------------------------------------------------------------

@@ -69,7 +69,7 @@ COPY controller /app/controller
 COPY web-manager/dist /app/dist
 
 ENV MANET_WEB_DIR=/app/dist
-EXPOSE 8000
+EXPOSE 7000
 
 WORKDIR /app
-CMD ["uvicorn", "controller.api.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uvicorn", "controller.api.main:app", "--host", "0.0.0.0", "--port", "7000"]

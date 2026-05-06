@@ -92,7 +92,7 @@ WorkingDirectory=${SCRIPT_DIR}
 Environment=MANET_WEB_DIR=${WEB_DIR}
 Environment=PYTHONPATH=${CONTROLLER_DIR}
 Environment=PATH=$(conda run -n ${ENV_NAME} which python3 | xargs dirname):/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
-ExecStart=$(conda run -n ${ENV_NAME} which python3) -m uvicorn controller.api.main:app --host 0.0.0.0 --port 8000
+ExecStart=$(conda run -n ${ENV_NAME} which python3) -m uvicorn controller.api.main:app --host 0.0.0.0 --port 7000
 Restart=always
 RestartSec=5
 
@@ -108,5 +108,5 @@ fi
 log "安装完成！"
 echo ""
 echo "激活环境:  conda activate ${ENV_NAME}"
-echo "手动启动:  PYTHONPATH=${CONTROLLER_DIR} MANET_WEB_DIR=${WEB_DIR} uvicorn controller.api.main:app --host 0.0.0.0 --port 8000"
+echo "手动启动:  PYTHONPATH=${CONTROLLER_DIR} MANET_WEB_DIR=${WEB_DIR} uvicorn controller.api.main:app --host 0.0.0.0 --port 7000"
 echo "systemd:   systemctl start manet-controller"

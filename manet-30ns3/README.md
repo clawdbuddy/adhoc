@@ -91,11 +91,11 @@ cd manet-30ns3
 docker compose --profile build build node-image-builder
 docker compose build ns3-controller
 
-# 2. 启动控制器（FastAPI 监听 :8000，特权模式 + host 网络）
+# 2. 启动控制器（FastAPI 监听 :7000，特权模式 + host 网络）
 docker compose up -d ns3-controller
-curl -s localhost:8000/api/health        # → {"ok": true}
+curl -s localhost:7000/api/health        # → {"ok": true}
 
-# 3. 浏览器打开 http://localhost:8000/  即可使用 React 管理面板
+# 3. 浏览器打开 http://localhost:7000/  即可使用 React 管理面板
 ```
 
 Web 面板功能：
@@ -110,27 +110,27 @@ Web 面板功能：
 
 ```bash
 # 用预设启动一次仿真
-curl -X POST localhost:8000/api/sim/start \
+curl -X POST localhost:7000/api/sim/start \
      -H 'content-type: application/json' \
      -d '{"preset":"debug"}'              # 5 节点，60 秒，无衰落
 
 # 查看运行状态
-curl -s localhost:8000/api/sim/status
+curl -s localhost:7000/api/sim/status
 
 # 取节点列表 / 流量统计
-curl -s localhost:8000/api/nodes
-curl -s localhost:8000/api/flows
+curl -s localhost:7000/api/nodes
+curl -s localhost:7000/api/flows
 
 # 在指定节点容器中执行命令
-curl -X POST localhost:8000/api/nodes/0/exec \
+curl -X POST localhost:7000/api/nodes/0/exec \
      -H 'content-type: application/json' \
      -d '{"cmd":"ip -4 addr show eth0"}'
 
 # 取节点日志
-curl 'localhost:8000/api/logs?node=0&tail=50'
+curl 'localhost:7000/api/logs?node=0&tail=50'
 
 # 停止仿真（自动拆桥/拆 veth/拆 TAP/停容器）
-curl -X POST localhost:8000/api/sim/stop
+curl -X POST localhost:7000/api/sim/stop
 ```
 
 ### 自定义配置
@@ -138,7 +138,7 @@ curl -X POST localhost:8000/api/sim/stop
 通过 REST 传入 `config` 字段即可覆盖任意参数（命名采用 camelCase，与 `manet-30ns3/web-manager/src/types/config.ts` 一致）：
 
 ```bash
-curl -X POST localhost:8000/api/sim/start \
+curl -X POST localhost:7000/api/sim/start \
      -H 'content-type: application/json' \
      -d '{
        "preset": "default",
@@ -160,7 +160,7 @@ curl -X POST localhost:8000/api/sim/start \
 也可以通过 `PUT /api/config` 暂存"下一轮"配置：
 
 ```bash
-curl -X PUT localhost:8000/api/config \
+curl -X PUT localhost:7000/api/config \
      -H 'content-type: application/json' \
      -d @my-config.json
 ```
@@ -303,7 +303,7 @@ curl -X PUT localhost:8000/api/config \
 示例：
 
 ```bash
-curl -X POST localhost:8000/api/sim/start \
+curl -X POST localhost:7000/api/sim/start \
      -H 'content-type: application/json' \
      -d '{
        "preset":"debug",
@@ -353,10 +353,10 @@ docker compose build ns3-controller
 
 # 2. 起服
 docker compose up -d ns3-controller
-curl -s localhost:8000/api/health     # {"ok": true}
+curl -s localhost:7000/api/health     # {"ok": true}
 
 # 3. 启动 5 节点冒烟
-curl -X POST localhost:8000/api/sim/start \
+curl -X POST localhost:7000/api/sim/start \
      -H 'content-type: application/json' \
      -d '{"preset":"debug"}'
 ip link | grep -E 'br-ns3|tap-|veth'  # 应能看到 br-ns3、5 个 tap-{i}、5 个 veth{i}
@@ -367,11 +367,11 @@ docker exec manet-node-0 ping -c 3 192.168.100.11
 docker exec manet-node-0 iperf3 -c 192.168.100.14 -t 5
 
 # 5. 遥测
-#    打开 http://localhost:8000/  → React UI 加载
+#    打开 http://localhost:7000/  → React UI 加载
 #    Topology 页显示 5 个节点；iperf3 起来约 10 秒后 FlowStats 更新
 
 # 6. 拆除
-curl -X POST localhost:8000/api/sim/stop
+curl -X POST localhost:7000/api/sim/stop
 ip link | grep -E 'br-ns3|tap-|veth' || echo "clean"
 ```
 

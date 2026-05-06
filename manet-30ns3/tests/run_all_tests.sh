@@ -5,13 +5,13 @@
 #   ./tests/run_all_tests.sh [CONTROLLER_URL]
 #
 # Environment:
-#   CONTROLLER_URL  - 控制器 REST API 地址（默认: http://localhost:8000）
+#   CONTROLLER_URL  - 控制器 REST API 地址（默认: http://localhost:7000）
 
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
-CONTROLLER_URL="${1:-http://localhost:8000}"
+CONTROLLER_URL="${1:-http://localhost:7000}"
 
 echo "========================================"
 echo "  MANET WiFi Test Suite"
