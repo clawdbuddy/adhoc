@@ -272,7 +272,20 @@ function App() {
         <div className="flex-1 overflow-auto">
           {activePage === 'dashboard' && (
             <div className="h-full flex flex-col overflow-hidden p-2 space-y-2">
-              <Dashboard status={status} flows={flows} nodes={nodes} />
+              <Dashboard
+  status={status}
+  flows={flows}
+  nodes={nodes}
+  config={{
+    beaconInterval: config.beaconInterval,
+    ssid: config.ssid,
+    standard: config.standard,
+    dataRate: config.dataRate,
+    txPowerStart: config.txPowerStart,
+    frequencyMhz: config.frequencyMhz,
+    macMode: config.macMode,
+  }}
+/>
               <div className="flex-1 min-h-0 overflow-auto">
                 <TopologyView nodes={nodes} flows={flows} running={status.running} compact />
               </div>
