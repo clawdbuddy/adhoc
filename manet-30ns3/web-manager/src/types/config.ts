@@ -88,6 +88,14 @@ export interface SimConfig {
   flowMonitor: boolean;
   pcapPrefix: string;
   enableMobilityTrace: boolean;
+
+  // --- Traffic ---
+  trafficMode: 'tap' | 'onoff';
+  onoffDataRate: string;
+  onoffPacketSize: number;
+  onoffMaxBytes: number;
+  onoffStartTime: number;
+  onoffSinkPort: number;
 }
 
 export interface NodeStatus {

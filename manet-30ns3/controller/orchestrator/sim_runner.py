@@ -84,6 +84,7 @@ def _import_ns():
         import ns.dsdv  # noqa: F401, WPS433
         import ns.dsr  # noqa: F401, WPS433
         import ns.mesh  # noqa: F401, WPS433
+        import ns.applications  # noqa: F401, WPS433
         return ns
 
 
@@ -394,14 +395,50 @@ class SimRunner:
         )
         ipv4.Assign(devices)
 
-        # 9. TapBridge — bind each WifiNetDevice to tap-{i} in UseBridge mode
-        tb_helper = ns.tap_bridge.TapBridgeHelper()
-        tb_helper.SetAttribute("Mode", ns.core.StringValue(cfg.tap_mode))
-        for i in range(cfg.n_nodes):
-            tap_name = f"{cfg.tap_prefix}{i}"
-            tb_helper.SetAttribute("DeviceName", ns.core.StringValue(tap_name))
-            tb_helper.Install(nodes.Get(i), devices.Get(i))
-            log.info("TapBridge node-%d ↔ %s", i, tap_name)
+        # 9. TapBridge or OnOff internal traffic
+        if cfg.traffic_mode == "tap":
+            tb_helper = ns.tap_bridge.TapBridgeHelper()
+            tb_helper.SetAttribute("Mode", ns.core.StringValue(cfg.tap_mode))
+            for i in range(cfg.n_nodes):
+                tap_name = f"{cfg.tap_prefix}{i}"
+                tb_helper.SetAttribute("DeviceName", ns.core.StringValue(tap_name))
+                tb_helper.Install(nodes.Get(i), devices.Get(i))
+                log.info("TapBridge node-%d ↔ %s", i, tap_name)
+        else:
+            # onoff mode: ns-3 internal traffic for baseline throughput test
+            sink_addr = ns.network.InetSocketAddress(
+                ns.network.Ipv4Address("192.168.100.10"), cfg.onoff_sink_port
+            )
+            packet_sink_helper = ns.applications.PacketSinkHelper(
+                "ns3::UdpSocketFactory", sink_addr
+            )
+            sink_app = packet_sink_helper.Install(nodes.Get(0))
+            sink_app.Start(ns.core.Seconds(0.0))
+
+            onoff_addr = ns.network.InetSocketAddress(
+                ns.network.Ipv4Address("192.168.100.10"), cfg.onoff_sink_port
+            )
+            onoff_helper = ns.applications.OnOffHelper(
+                "ns3::UdpSocketFactory", onoff_addr
+            )
+            onoff_helper.SetAttribute(
+                "DataRate", ns.network.DataRateValue(ns.network.DataRate(cfg.onoff_data_rate))
+            )
+            onoff_helper.SetAttribute(
+                "PacketSize", ns.core.UintegerValue(cfg.onoff_packet_size)
+            )
+            if cfg.onoff_max_bytes > 0:
+                onoff_helper.SetAttribute(
+                    "MaxBytes", ns.core.UintegerValue(cfg.onoff_max_bytes)
+                )
+            # install on last node as sender
+            sender_node = nodes.Get(cfg.n_nodes - 1)
+            onoff_app = onoff_helper.Install(sender_node)
+            onoff_app.Start(ns.core.Seconds(cfg.onoff_start_time))
+            log.info(
+                "OnOff traffic: node-%d → node-0 @ %s, pkt=%dB, port=%d",
+                cfg.n_nodes - 1, cfg.onoff_data_rate, cfg.onoff_packet_size, cfg.onoff_sink_port
+            )
 
         # 10. FlowMonitor
         if cfg.flow_monitor:

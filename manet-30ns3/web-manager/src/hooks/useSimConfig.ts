@@ -7,7 +7,7 @@ const API_BASE = '';
 // 权威预设定义在后端 controller/orchestrator/config.py:PRESETS 中。
 const FALLBACK_CONFIG: SimConfig = {
   nNodes: 6, simulationTime: 300, seed: 1, run: 1, logComponents: '',
-  standard: '80211a', phyModel: 'spectrum', frequencyMhz: 590, channelWidthMhz: 20, rangeTargetM: 4000,
+  standard: '80211g', phyModel: 'yans', frequencyMhz: 2412, channelWidthMhz: 20, rangeTargetM: 4000,
   dataRate: 'OfdmRate6Mbps',
   txPowerStart: 30, txPowerEnd: 30, txPowerLevels: 1,
   rxSensitivity: -92, ccaThreshold: -82, antennaGain: 3,
@@ -27,6 +27,8 @@ const FALLBACK_CONFIG: SimConfig = {
   gridMinX: 100, gridMinY: 100, gridDeltaX: 800, gridDeltaY: 800, gridWidth: 6, gridLayout: 'RowFirst',
   gmAlpha: 0.85, pcap: true, ascii: false, flowMonitor: true,
   pcapPrefix: 'manet-30nodes-adhoc', enableMobilityTrace: false,
+  trafficMode: 'tap', onoffDataRate: '6Mbps', onoffPacketSize: 1024,
+  onoffMaxBytes: 0, onoffStartTime: 1.0, onoffSinkPort: 5000,
 };
 
 // 按钮显示名映射（后端 /api/sim/presets 只返回扁平 SimConfig，没有 name 字段）

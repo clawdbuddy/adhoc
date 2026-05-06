@@ -37,6 +37,7 @@ GridLayout = Literal["RowFirst", "ColumnFirst"]
 RwMode = Literal["Time", "Distance"]
 NodeRole = Literal["client", "server", "gateway"]
 UserAppMode = Literal["bind", "image", "exec"]
+TrafficMode = Literal["tap", "onoff"]
 
 
 class _CamelModel(BaseModel):
@@ -163,6 +164,17 @@ class SimConfig(_CamelModel):
     # --- TapBridge [全局] ---
     tap_mode: Literal["UseBridge", "UseLocal"] = "UseLocal"
     tap_prefix: str = "tap-"
+
+    # --- Traffic generator [全局] ---
+    # traffic_mode="tap" 时使用 TapBridge + 真实容器（默认）；
+    # traffic_mode="onoff" 时使用 ns-3 内部 OnOffApplication + PacketSink，
+    # 绕过 TapBridge 和容器，用于测量纯 ns-3 内部吞吐基线。
+    traffic_mode: TrafficMode = "tap"
+    onoff_data_rate: str = "6Mbps"
+    onoff_packet_size: int = 1024
+    onoff_max_bytes: int = 0
+    onoff_start_time: float = 1.0
+    onoff_sink_port: int = 5000
 
     # ----- helpers -----------------------------------------------------------
     def merged_with(self, partial: Mapping[str, Any]) -> "SimConfig":
