@@ -319,6 +319,10 @@ class SimRunner:
             "SimulatorImplementationType",
             ns.core.StringValue("ns3::RealtimeSimulatorImpl"),
         )
+        ns.core.Config.Set(
+            "ns3::RealtimeSimulatorImpl::SynchronizationMode",
+            ns.core.StringValue("HardLimit"),
+        )
         ns.core.GlobalValue.Bind("ChecksumEnabled", ns.core.BooleanValue(True))
         ns.core.RngSeedManager.SetSeed(cfg.seed)
         ns.core.RngSeedManager.SetRun(cfg.run)
