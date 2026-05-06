@@ -71,7 +71,7 @@ class SimConfig(_CamelModel):
     # 工作在标准 WiFi 模式，避免非合法频段导致速率回退到 1 Mbps。
     # 传播损耗按 frequency_mhz 计算，4 km LOS 预算与 2.4 GHz 物理一致。
     standard: Standard = "80211g"
-    phy_model: PhyModel = "spectrum"
+    phy_model: PhyModel = "yans"
     frequency_mhz: int = 2412
     channel_width_mhz: int = 20
     data_rate: str = "ErpOfdmRate24Mbps"
@@ -209,6 +209,7 @@ PRESETS: dict[str, SimConfig] = {
     "urban": _preset(
         nNodes=30, macMode="mesh",
         ssid="adhoc-urban",
+        phyModel="yans",
         txPowerStart=27.0, txPowerEnd=27.0,
         rxSensitivity=-90.0, ccaThreshold=-78.0,
         pathLossModel="LogDistance", pathLossExponent=3.5,
@@ -264,7 +265,7 @@ PRESETS: dict[str, SimConfig] = {
         nNodes=10, simulationTime=300,
         ssid="adhoc-tactical",
         standard="80211a",
-        phyModel="spectrum",
+        phyModel="yans",
         frequencyMhz=590,
         channelWidthMhz=20,
         dataRate="OfdmRate6Mbps",
@@ -295,7 +296,7 @@ PRESETS: dict[str, SimConfig] = {
         nNodes=5, simulationTime=120,
         ssid="wifi-test-2.4g",
         standard="80211g",
-        phyModel="spectrum",
+        phyModel="yans",
         frequencyMhz=2412,
         channelWidthMhz=20,
         dataRate="ErpOfdmRate24Mbps",
@@ -321,7 +322,7 @@ PRESETS: dict[str, SimConfig] = {
         nNodes=5, simulationTime=120,
         ssid="wifi-test-5g",
         standard="80211a",
-        phyModel="spectrum",
+        phyModel="yans",
         frequencyMhz=5180,
         channelWidthMhz=20,
         dataRate="OfdmRate24Mbps",
@@ -347,7 +348,7 @@ PRESETS: dict[str, SimConfig] = {
         nNodes=5, simulationTime=120,
         ssid="wifi-test-20m",
         standard="80211n-2.4GHz",
-        phyModel="spectrum",
+        phyModel="yans",
         frequencyMhz=2437,
         channelWidthMhz=20,
         dataRate="HtMcs7",
@@ -372,7 +373,7 @@ PRESETS: dict[str, SimConfig] = {
         nNodes=5, simulationTime=120,
         ssid="wifi-test-40m",
         standard="80211n-2.4GHz",
-        phyModel="spectrum",
+        phyModel="yans",
         frequencyMhz=2437,
         channelWidthMhz=40,
         dataRate="HtMcs7",
@@ -397,7 +398,7 @@ PRESETS: dict[str, SimConfig] = {
         nNodes=5, simulationTime=180,
         ssid="wifi-test-distance",
         standard="80211g",
-        phyModel="spectrum",
+        phyModel="yans",
         frequencyMhz=2412,
         channelWidthMhz=20,
         dataRate="ErpOfdmRate24Mbps",
@@ -424,7 +425,7 @@ PRESETS: dict[str, SimConfig] = {
         nNodes=10, simulationTime=180,
         ssid="wifi-test-multihop",
         standard="80211g",
-        phyModel="spectrum",
+        phyModel="yans",
         frequencyMhz=2412,
         channelWidthMhz=20,
         dataRate="ErpOfdmRate24Mbps",
