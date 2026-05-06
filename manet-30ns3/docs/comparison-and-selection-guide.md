@@ -333,3 +333,68 @@ curl -X POST localhost:8000/api/env/range \
   -H 'content-type: application/json' \
   -d '{"meters":2000.0}'
 ```
+
+---
+
+## 附录 B：参数作用域说明（全局 vs 节点）
+
+仿真参数按作用域分为三类，在 `controller/orchestrator/config.py:SimConfig` 中以注释明确标注：
+
+### B.1 全局参数 [全局]
+
+**定义**：控制器级参数，所有节点共享同一值。变更需**重启仿真**才能生效。
+
+**包括**：
+
+| 分组 | 字段 | 说明 |
+|------|------|------|
+| **General** | `nNodes`, `simulationTime`, `seed`, `run`, `logComponents` | 仿真控制 |
+| **PHY Model** | `standard`, `phyModel`, `frequencyMhz`, `channelWidthMhz`, `dataRate` | 802.11 标准与信道配置 |
+| **Propagation** | `pathLossModel`, `propagationDelay`, `pathLossExponent`, `enableFading`, `nakagami*`, ... | 传播环境与衰落模型 |
+| **Range** | `rangeTargetM` | 硬截断距离（支持运行时全局调整） |
+| **MAC Network** | `ssid`, `bssid`, `macMode`, `rateControl` | 网络标识与 MAC 模式 |
+| **Routing** | `routingProtocol`, `aodv*`, `olsr*`, `dsdv*` | 路由协议及参数 |
+| **Mobility** | `mobilityModel`, `mobilityMin/Max*`, `rw*`, `grid*`, `gmAlpha` | 移动模型与活动区域 |
+| **Tracing** | `pcap`, `ascii`, `flowMonitor`, `pcapPrefix` | 跟踪与监控 |
+| **TapBridge** | `tapMode`, `tapPrefix` | TAP 设备配置 |
+
+**技术原因**：这些参数在 ns-3 中作用于 **Channel / Helper / MobilityHelper** 层级，在 `Install()` 前统一设置，所有节点共享同一对象实例。
+
+### B.2 节点参数 [节点]
+
+**定义**：节点级参数，当前版本统一设置，但支持**运行时通过动态控制 API 对单个节点调整**。
+
+**包括**：
+
+| 字段 | 动态控制 API | 说明 |
+|------|-------------|------|
+| `txPowerStart` / `txPowerEnd` | `POST /api/env/txpower` | 发射功率（dBm） |
+| `rxSensitivity` | `POST /api/env/rxsens` | 接收灵敏度（dBm） |
+| `ccaThreshold` | — | CCA 阈值（当前无动态 API） |
+| `antennaGain` | — | 天线增益（当前无动态 API） |
+
+**技术原因**：这些参数在 ns-3 中作用于 **WifiPhy** 层级，每个节点有独立的 PHY 对象，因此理论上可以各不相同。`sim_runner.py` 在启动时统一设置，但 `set_tx_power()` / `set_rx_sensitivity()` 等动态方法通过 `device.GetPhy()` 获取指定节点的 PHY 实例进行单节点修改。
+
+### B.3 预留参数 [预留]
+
+**定义**：已在 `SimConfig` 中定义字段，但 `sim_runner.py` **尚未接入 ns-3**，当前修改不生效。
+
+**包括**：
+
+| 字段 | 说明 |
+|------|------|
+| `rtsCtsThreshold` | RTS/CTS 阈值 |
+| `fragmentationThreshold` | 分片阈值 |
+| `nonUnicastMode` | 非单播模式 |
+| `beaconInterval` | 信标间隔 |
+| `cwMin` / `cwMax` | 竞争窗口 |
+
+> 如需启用，需在 `sim_runner.py` 的 MAC 安装阶段通过 `mac.Set()` 或 `phy.Set()` 显式设置对应属性。
+
+### B.4 快速判断方法
+
+查看 `sim_runner.py:_build_and_run()` 中的设置位置：
+
+- 在 `phy.Set("...")` / `wifi.SetRemoteStationManager()` / `mob.SetMobilityModel()` **之前** `Install(nodes)` → **全局**
+- 通过 `device.GetPhy()` 获取后单独 `SetAttribute()` → **节点级**
+- 仅在 `config.py` 定义但未在 `sim_runner.py` 引用 → **预留**

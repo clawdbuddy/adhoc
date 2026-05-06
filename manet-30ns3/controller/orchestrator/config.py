@@ -50,14 +50,22 @@ class _CamelModel(BaseModel):
 
 # ----- simulation config -----------------------------------------------------
 class SimConfig(_CamelModel):
-    # General
+    # ========================================================================
+    # 参数作用域说明：
+    #   [全局]  — 控制器级参数，所有节点共享同一值，变更需重启仿真。
+    #   [节点]  — 节点级参数，当前版本统一设置，但支持运行时通过动态控制
+    #            API（/api/env/txpower、/api/env/rxsens 等）对单个节点调整。
+    #   [预留]  — 已定义但 sim_runner.py 尚未接入 ns-3，当前不生效。
+    # ========================================================================
+
+    # --- General [全局] ---
     n_nodes: int = 6
     simulation_time: float = 300
     seed: int = 1
     run: int = 1
     log_components: str = ""
 
-    # PHY
+    # --- PHY model & channel [全局] ---
     # phy_model="spectrum" 启用 SpectrumWifiPhy + MultiModelSpectrumChannel；
     # 默认使用 2.4 GHz WiFi 频段（802.11g Channel 1, 2412 MHz），确保 ns-3 PHY/MAC
     # 工作在标准 WiFi 模式，避免非合法频段导致速率回退到 1 Mbps。
@@ -66,8 +74,9 @@ class SimConfig(_CamelModel):
     phy_model: PhyModel = "spectrum"
     frequency_mhz: int = 2412
     channel_width_mhz: int = 20
-    range_target_m: float = 4000.0
     data_rate: str = "ErpOfdmRate24Mbps"
+
+    # --- PHY device [节点] — 支持运行时单节点调整 ---
     tx_power_start: float = 30.0
     tx_power_end: float = 30.0
     tx_power_levels: int = 1
@@ -75,7 +84,7 @@ class SimConfig(_CamelModel):
     cca_threshold: float = -82.0
     antenna_gain: float = 3.0
 
-    # Propagation
+    # --- Propagation [全局] — 信道级模型，所有节点共享同一传播环境 ---
     propagation_delay: PropagationDelay = "ConstantSpeed"
     path_loss_model: PathLossModel = "FreeSpace"
     path_loss_exponent: float = 2.0
@@ -89,13 +98,19 @@ class SimConfig(_CamelModel):
     nakagami_d1: float = 50.0
     nakagami_d2: float = 100.0
 
-    # MAC — mac_mode="mesh" 启用 802.11s + HWMP 实现 L2 多跳；
+    # --- Range [全局/动态可调] — 叠加在传播模型上的硬截断，运行时可通过 /api/env/range 修改 ---
+    range_target_m: float = 4000.0
+
+    # --- MAC network [全局] — 网络级配置，所有节点共享同一 SSID/BSSID/MAC 模式 ---
+    # mac_mode="mesh" 启用 802.11s + HWMP 实现 L2 多跳；
     # 此时 TapBridge UseBridge 仍可用，整张 mesh 在容器视角下是一个 L2 广播域，
     # 多跳转发由 ns-3 mesh 模块在底层完成，容器侧无需额外路由配置。
     ssid: str = "adhoc-30ns3"
     bssid: str = "00:00:00:00:AD:H0"
     mac_mode: MacMode = "adhoc"
     rate_control: RateControl = "Constant"
+
+    # --- MAC device [预留] — 当前代码未接入 ns-3，预留字段 ---
     rts_cts_threshold: int = 2200
     fragmentation_threshold: int = 2200
     non_unicast_mode: bool = False
@@ -103,7 +118,7 @@ class SimConfig(_CamelModel):
     cw_min: int = 15
     cw_max: int = 1023
 
-    # Routing
+    # --- Routing [全局] — 协议级配置，所有节点运行同一路由协议 ---
     routing_protocol: RoutingProtocol = "aodv"
     aodv_hello_interval: float = 1.0
     aodv_rreq_retries: int = 2
@@ -117,7 +132,8 @@ class SimConfig(_CamelModel):
     dsdv_periodic_update_interval: float = 15.0
     dsdv_settling_time: float = 6
 
-    # Mobility — 默认覆盖 5000 m × 5000 m 的活动范围，配合 4 km LOS 视距。
+    # --- Mobility [全局] — 区域与布局策略，所有节点在同一仿真区域内 ---
+    # 默认覆盖 5000 m × 5000 m 的活动范围，配合 4 km LOS 视距。
     mobility_model: MobilityModel = "random-walk"
     mobility_min_x: float = 0.0
     mobility_max_x: float = 5000.0
@@ -136,7 +152,7 @@ class SimConfig(_CamelModel):
     grid_layout: GridLayout = "RowFirst"
     gm_alpha: float = 0.85
 
-    # Tracing — keys match .conf files (`pcap`, `ascii`); camelCase aliases
+    # --- Tracing [全局] — keys match .conf files (`pcap`, `ascii`); camelCase aliases
     # are `pcap` and `ascii` (single-word, no transformation).
     pcap: bool = True
     ascii: bool = False
@@ -144,7 +160,7 @@ class SimConfig(_CamelModel):
     pcap_prefix: str = "manet-30nodes-adhoc"
     enable_mobility_trace: bool = False
 
-    # TapBridge
+    # --- TapBridge [全局] ---
     tap_mode: Literal["UseBridge", "UseLocal"] = "UseLocal"
     tap_prefix: str = "tap-"
 
@@ -512,117 +528,129 @@ def load_config(
 # ----- persistent config file helpers ----------------------------------------
 
 FIELD_DESCRIPTIONS: dict[str, str] = {
-    # General
-    "nNodes": "节点数量：仿真中同时活跃的节点总数（2-100）",
-    "simulationTime": "仿真时长：单轮仿真的持续时间（秒）",
-    "seed": "随机种子：控制伪随机数生成器的初始状态",
-    "run": "运行编号：用于区分同一配置下的多次重复实验",
-    "logComponents": "日志组件：逗号分隔的 ns-3 LogComponent 名称",
-    # PHY
-    "standard": "802.11 标准：决定调制方式和速率表",
-    "phyModel": "PHY 模型：yans（简化）或 spectrum（频谱级仿真）",
-    "frequencyMhz": "中心频率：工作频段的中心频率（MHz），默认 2412 MHz（WiFi 2.4GHz Channel 1）",
-    "channelWidthMhz": "信道带宽：每个信道的带宽（MHz）",
-    "rangeTargetM": "目标覆盖范围：期望的单跳通信距离（米），用于链路预算",
-    "dataRate": "数据速率：固定使用的 PHY 数据速率模式",
-    "txPowerStart": "发射功率起始：最小发射功率（dBm）",
-    "txPowerEnd": "发射功率结束：最大发射功率（dBm）",
-    "txPowerLevels": "发射功率等级数：功率控制的分级数量",
-    "rxSensitivity": "接收灵敏度：可解调信号的最小接收功率（dBm）",
-    "ccaThreshold": "CCA 阈值：信道评估的忙碌判定门限（dBm）",
-    "antennaGain": "天线增益：全向天线增益（dBi）",
-    # Propagation
-    "propagationDelay": "传播延迟模型：ConstantSpeed（光速）或 Random",
-    "pathLossModel": "路径损耗模型：FreeSpace/LogDistance/TwoRayGround 等",
-    "pathLossExponent": "路径损耗指数：LogDistance 模型中的衰减指数",
-    "pathLossRefLoss": "1m 参考损耗：参考距离 1 米处的路径损耗（dB）",
-    "pathLossRefDistance": "参考距离：计算参考损耗的距离（米）",
-    "enableFading": "启用衰落：是否叠加小尺度衰落模型",
-    "fadingModel": "衰落模型：Nakagami（默认）或 Jakes",
-    "nakagamiM0": "Nakagami M0：近距离（d < D1）的衰落参数",
-    "nakagamiM1": "Nakagami M1：中距离（D1 <= d < D2）的衰落参数",
-    "nakagamiM2": "Nakagami M2：远距离（d >= D2）的衰落参数",
-    "nakagamiD1": "Nakagami 距离 D1：M0/M1 分界的距离阈值（米）",
-    "nakagamiD2": "Nakagami 距离 D2：M1/M2 分界的距离阈值（米）",
-    # MAC
-    "ssid": "SSID：网络标识符",
-    "bssid": "BSSID：基本服务集标识符（MAC 格式）",
-    "macMode": "MAC 模式：adhoc（独立基本服务集）或 mesh（802.11s）",
-    "rateControl": "速率控制算法：Arf/Aarf/Onoe/Constant/Minstrel",
-    "rtsCtsThreshold": "RTS/CTS 阈值：超过此字节的数据帧启用 RTS/CTS，65535=禁用",
-    "fragmentationThreshold": "分片阈值：超过此字节的数据帧分片传输",
-    "nonUnicastMode": "非单播模式：广播/组播使用最低数据速率",
-    "beaconInterval": "信标间隔：Beacon 帧发送间隔（TU，1024us）",
-    "cwMin": "最小竞争窗口：CSMA/CA 的最小退避窗口大小",
-    "cwMax": "最大竞争窗口：CSMA/CA 的最大退避窗口大小",
-    # Routing
-    "routingProtocol": "路由协议：aodv/olsr/dsdv/dsr/none",
-    "aodvHelloInterval": "AODV Hello 间隔：邻居发现广播间隔（秒）",
-    "aodvRreqRetries": "AODV RREQ 重试：路由请求的最大重传次数",
-    "aodvActiveRouteTimeout": "AODV 活跃路由超时：未使用路由的过期时间（秒）",
-    "aodvDeletePeriod": "AODV 删除周期：路由表项的清理周期（秒）",
-    "aodvNetDiameter": "AODV 网络直径：预估的网络最大跳数",
-    "aodvEnableHello": "AODV 启用 Hello：是否使用 Hello 消息维护邻居关系",
-    "olsrHelloInterval": "OLSR Hello 间隔：拓扑发现广播间隔（秒）",
-    "olsrTcInterval": "OLSR TC 间隔：拓扑控制消息发送间隔（秒）",
-    "olsrWillingness": "OLSR 意愿值：节点转发 TC 消息的意愿（0-7）",
-    "dsdvPeriodicUpdateInterval": "DSDV 定期更新间隔：路由表广播间隔（秒）",
-    "dsdvSettlingTime": "DSDV 稳定时间：等待路由收敛的最长时间（秒）",
-    # Mobility
-    "mobilityModel": "移动模型：random-walk/gauss-markov/grid/constant",
-    "mobilityMinX": "区域最小 X：仿真区域的左边界（米）",
-    "mobilityMaxX": "区域最大 X：仿真区域的右边界（米）",
-    "mobilityMinY": "区域最小 Y：仿真区域的下边界（米）",
-    "mobilityMaxY": "区域最大 Y：仿真区域的上边界（米）",
-    "rwMinSpeed": "随机游走最小速度：节点最小移动速度（m/s）",
-    "rwMaxSpeed": "随机游走最大速度：节点最大移动速度（m/s）",
-    "rwDistance": "随机游走距离：Distance 模式下每次改变方向前移动的距离（米）",
-    "rwMode": "随机游走模式：Time（按时间）或 Distance（按距离）",
-    "rwTime": "随机游走时间：Time 模式下每次改变方向前的时间（秒）",
-    "gridMinX": "网格起始 X：Grid 布局的左上角 X 坐标（米）",
-    "gridMinY": "网格起始 Y：Grid 布局的左上角 Y 坐标（米）",
-    "gridDeltaX": "网格 X 间距：Grid 布局中节点水平间距（米）",
-    "gridDeltaY": "网格 Y 间距：Grid 布局中节点垂直间距（米）",
-    "gridWidth": "网格每行节点数：Grid 布局每行的节点数量",
-    "gridLayout": "网格布局：RowFirst（按行填充）或 ColumnFirst（按列填充）",
-    "gmAlpha": "高斯-马尔可夫 Alpha：速度记忆系数（0=完全随机, 1=直线运动）",
-    # Tracing
-    "pcap": "PCAP 跟踪：是否生成 PCAP 抓包文件",
-    "ascii": "ASCII 跟踪：是否生成 ASCII 文本跟踪文件",
-    "flowMonitor": "流监控：是否启用 ns-3 FlowMonitor 端到端统计",
-    "pcapPrefix": "PCAP 文件名前缀：跟踪文件的路径前缀",
-    "enableMobilityTrace": "移动性跟踪：是否记录节点位置轨迹",
+    # --- General [全局] ---
+    "nNodes": "[全局] 节点数量：仿真中同时活跃的节点总数（2-100）",
+    "simulationTime": "[全局] 仿真时长：单轮仿真的持续时间（秒）",
+    "seed": "[全局] 随机种子：控制伪随机数生成器的初始状态",
+    "run": "[全局] 运行编号：用于区分同一配置下的多次重复实验",
+    "logComponents": "[全局] 日志组件：逗号分隔的 ns-3 LogComponent 名称",
+    # --- PHY model & channel [全局] ---
+    "standard": "[全局] 802.11 标准：决定调制方式和速率表",
+    "phyModel": "[全局] PHY 模型：yans（简化）或 spectrum（频谱级仿真）",
+    "frequencyMhz": "[全局] 中心频率：工作频段的中心频率（MHz），默认 2412 MHz（WiFi 2.4GHz Channel 1）",
+    "channelWidthMhz": "[全局] 信道带宽：每个信道的带宽（MHz）",
+    "dataRate": "[全局] 数据速率：固定使用的 PHY 数据速率模式",
+    # --- PHY device [节点] ---
+    "txPowerStart": "[节点] 发射功率起始：最小发射功率（dBm），支持运行时单节点调整",
+    "txPowerEnd": "[节点] 发射功率结束：最大发射功率（dBm），支持运行时单节点调整",
+    "txPowerLevels": "[节点] 发射功率等级数：功率控制的分级数量",
+    "rxSensitivity": "[节点] 接收灵敏度：可解调信号的最小接收功率（dBm），支持运行时单节点调整",
+    "ccaThreshold": "[节点] CCA 阈值：信道评估的忙碌判定门限（dBm）",
+    "antennaGain": "[节点] 天线增益：全向天线增益（dBi）",
+    # --- Propagation [全局] ---
+    "propagationDelay": "[全局] 传播延迟模型：ConstantSpeed（光速）或 Random",
+    "pathLossModel": "[全局] 路径损耗模型：FreeSpace/LogDistance/TwoRayGround 等",
+    "pathLossExponent": "[全局] 路径损耗指数：LogDistance 模型中的衰减指数",
+    "pathLossRefLoss": "[全局] 1m 参考损耗：参考距离 1 米处的路径损耗（dB）",
+    "pathLossRefDistance": "[全局] 参考距离：计算参考损耗的距离（米）",
+    "enableFading": "[全局] 启用衰落：是否叠加小尺度衰落模型",
+    "fadingModel": "[全局] 衰落模型：Nakagami（默认）或 Jakes",
+    "nakagamiM0": "[全局] Nakagami M0：近距离（d < D1）的衰落参数",
+    "nakagamiM1": "[全局] Nakagami M1：中距离（D1 <= d < D2）的衰落参数",
+    "nakagamiM2": "[全局] Nakagami M2：远距离（d >= D2）的衰落参数",
+    "nakagamiD1": "[全局] Nakagami 距离 D1：M0/M1 分界的距离阈值（米）",
+    "nakagamiD2": "[全局] Nakagami 距离 D2：M1/M2 分界的距离阈值（米）",
+    # --- Range [全局/动态可调] ---
+    "rangeTargetM": "[全局/动态可调] 目标覆盖范围：叠加在传播模型上的硬截断距离（米），运行时可通过 /api/env/range 修改",
+    # --- MAC network [全局] ---
+    "ssid": "[全局] SSID：网络标识符",
+    "bssid": "[全局] BSSID：基本服务集标识符（MAC 格式）",
+    "macMode": "[全局] MAC 模式：adhoc（独立基本服务集）或 mesh（802.11s）",
+    "rateControl": "[全局] 速率控制算法：Arf/Aarf/Onoe/Constant/Minstrel",
+    # --- MAC device [预留] ---
+    "rtsCtsThreshold": "[预留] RTS/CTS 阈值：当前代码未接入 ns-3",
+    "fragmentationThreshold": "[预留] 分片阈值：当前代码未接入 ns-3",
+    "nonUnicastMode": "[预留] 非单播模式：当前代码未接入 ns-3",
+    "beaconInterval": "[预留] 信标间隔：当前代码未接入 ns-3",
+    "cwMin": "[预留] 最小竞争窗口：当前代码未接入 ns-3",
+    "cwMax": "[预留] 最大竞争窗口：当前代码未接入 ns-3",
+    # --- Routing [全局] ---
+    "routingProtocol": "[全局] 路由协议：aodv/olsr/dsdv/dsr/none",
+    "aodvHelloInterval": "[全局] AODV Hello 间隔：邻居发现广播间隔（秒）",
+    "aodvRreqRetries": "[全局] AODV RREQ 重试：路由请求的最大重传次数",
+    "aodvActiveRouteTimeout": "[全局] AODV 活跃路由超时：未使用路由的过期时间（秒）",
+    "aodvDeletePeriod": "[全局] AODV 删除周期：路由表项的清理周期（秒）",
+    "aodvNetDiameter": "[全局] AODV 网络直径：预估的网络最大跳数",
+    "aodvEnableHello": "[全局] AODV 启用 Hello：是否使用 Hello 消息维护邻居关系",
+    "olsrHelloInterval": "[全局] OLSR Hello 间隔：拓扑发现广播间隔（秒）",
+    "olsrTcInterval": "[全局] OLSR TC 间隔：拓扑控制消息发送间隔（秒）",
+    "olsrWillingness": "[全局] OLSR 意愿值：节点转发 TC 消息的意愿（0-7）",
+    "dsdvPeriodicUpdateInterval": "[全局] DSDV 定期更新间隔：路由表广播间隔（秒）",
+    "dsdvSettlingTime": "[全局] DSDV 稳定时间：等待路由收敛的最长时间（秒）",
+    # --- Mobility [全局] ---
+    "mobilityModel": "[全局] 移动模型：random-walk/gauss-markov/grid/constant",
+    "mobilityMinX": "[全局] 区域最小 X：仿真区域的左边界（米）",
+    "mobilityMaxX": "[全局] 区域最大 X：仿真区域的右边界（米）",
+    "mobilityMinY": "[全局] 区域最小 Y：仿真区域的下边界（米）",
+    "mobilityMaxY": "[全局] 区域最大 Y：仿真区域的上边界（米）",
+    "rwMinSpeed": "[全局] 随机游走最小速度：节点最小移动速度（m/s）",
+    "rwMaxSpeed": "[全局] 随机游走最大速度：节点最大移动速度（m/s）",
+    "rwDistance": "[全局] 随机游走距离：Distance 模式下每次改变方向前移动的距离（米）",
+    "rwMode": "[全局] 随机游走模式：Time（按时间）或 Distance（按距离）",
+    "rwTime": "[全局] 随机游走时间：Time 模式下每次改变方向前的时间（秒）",
+    "gridMinX": "[全局] 网格起始 X：Grid 布局的左上角 X 坐标（米）",
+    "gridMinY": "[全局] 网格起始 Y：Grid 布局的左上角 Y 坐标（米）",
+    "gridDeltaX": "[全局] 网格 X 间距：Grid 布局中节点水平间距（米）",
+    "gridDeltaY": "[全局] 网格 Y 间距：Grid 布局中节点垂直间距（米）",
+    "gridWidth": "[全局] 网格每行节点数：Grid 布局每行的节点数量",
+    "gridLayout": "[全局] 网格布局：RowFirst（按行填充）或 ColumnFirst（按列填充）",
+    "gmAlpha": "[全局] 高斯-马尔可夫 Alpha：速度记忆系数（0=完全随机, 1=直线运动）",
+    # --- Tracing [全局] ---
+    "pcap": "[全局] PCAP 跟踪：是否生成 PCAP 抓包文件",
+    "ascii": "[全局] ASCII 跟踪：是否生成 ASCII 文本跟踪文件",
+    "flowMonitor": "[全局] 流监控：是否启用 ns-3 FlowMonitor 端到端统计",
+    "pcapPrefix": "[全局] PCAP 文件名前缀：跟踪文件的路径前缀",
+    "enableMobilityTrace": "[全局] 移动性跟踪：是否记录节点位置轨迹",
 }
 
 _FIELD_GROUPS: list[tuple[str, list[str]]] = [
-    ("--- General ---", ["nNodes", "simulationTime", "seed", "run", "logComponents"]),
-    ("--- PHY ---", [
-        "standard", "phyModel", "frequencyMhz", "channelWidthMhz", "rangeTargetM",
-        "dataRate", "txPowerStart", "txPowerEnd", "txPowerLevels",
-        "rxSensitivity", "ccaThreshold", "antennaGain",
+    # --- 全局参数：所有节点共享，变更需重启仿真 ---
+    ("--- General [全局] ---", ["nNodes", "simulationTime", "seed", "run", "logComponents"]),
+    ("--- PHY Model & Channel [全局] ---", [
+        "standard", "phyModel", "frequencyMhz", "channelWidthMhz", "dataRate",
     ]),
-    ("--- Propagation ---", [
+    ("--- Propagation [全局] ---", [
         "propagationDelay", "pathLossModel", "pathLossExponent", "pathLossRefLoss",
         "pathLossRefDistance", "enableFading", "fadingModel",
         "nakagamiM0", "nakagamiM1", "nakagamiM2", "nakagamiD1", "nakagamiD2",
     ]),
-    ("--- MAC ---", [
-        "ssid", "bssid", "macMode", "rateControl", "rtsCtsThreshold",
-        "fragmentationThreshold", "nonUnicastMode", "beaconInterval", "cwMin", "cwMax",
+    ("--- Range [全局/动态可调] ---", ["rangeTargetM"]),
+    ("--- MAC Network [全局] ---", [
+        "ssid", "bssid", "macMode", "rateControl",
     ]),
-    ("--- Routing ---", [
+    ("--- Routing [全局] ---", [
         "routingProtocol", "aodvHelloInterval", "aodvRreqRetries",
         "aodvActiveRouteTimeout", "aodvDeletePeriod", "aodvNetDiameter", "aodvEnableHello",
         "olsrHelloInterval", "olsrTcInterval", "olsrWillingness",
         "dsdvPeriodicUpdateInterval", "dsdvSettlingTime",
     ]),
-    ("--- Mobility ---", [
+    ("--- Mobility [全局] ---", [
         "mobilityModel", "mobilityMinX", "mobilityMaxX", "mobilityMinY", "mobilityMaxY",
         "rwMinSpeed", "rwMaxSpeed", "rwDistance", "rwMode", "rwTime",
         "gridMinX", "gridMinY", "gridDeltaX", "gridDeltaY", "gridWidth", "gridLayout",
         "gmAlpha",
     ]),
-    ("--- Tracing ---", ["pcap", "ascii", "flowMonitor", "pcapPrefix", "enableMobilityTrace"]),
+    ("--- Tracing [全局] ---", ["pcap", "ascii", "flowMonitor", "pcapPrefix", "enableMobilityTrace"]),
+    # --- 节点参数：支持运行时单节点调整 ---
+    ("--- PHY Device [节点] ---", [
+        "txPowerStart", "txPowerEnd", "txPowerLevels",
+        "rxSensitivity", "ccaThreshold", "antennaGain",
+    ]),
+    # --- 预留参数：已定义但尚未接入 ns-3 ---
+    ("--- MAC Device [预留] ---", [
+        "rtsCtsThreshold", "fragmentationThreshold", "nonUnicastMode",
+        "beaconInterval", "cwMin", "cwMax",
+    ]),
 ]
 
 CONFIG_FILE_PATH: Path = Path("/app/config/user_settings.conf")
