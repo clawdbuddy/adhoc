@@ -25,7 +25,7 @@ services:
     build:
       context: .
       dockerfile: ns3-controller/Dockerfile.controller
-    image: ns3-controller:latest
+    image: ns3-controller:3.47
     container_name: ns3-controller
     privileged: true
     network_mode: host
@@ -42,6 +42,8 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
       # Persist netns symlinks across IPRoute/NetNS calls
       - /var/run/netns:/var/run/netns
+      # Mount controller source code for live reload (dev workflow)
+      - ./controller:/app/controller
       # Optional: surface pcap/ascii traces and FlowMonitor XML to the host
       - ./results:/results
       # Persist user simulation configuration across container restarts

@@ -25,24 +25,60 @@ from .config import SimConfig
 log = logging.getLogger(__name__)
 
 
+def _to_ns3_address(inet_addr: Any) -> Any:
+    """cppyy 绑定中 InetSocketAddress 无法隐式转换为 Address，需显式调用 ConvertTo。
+
+    pybindgen 路线无此问题；本函数在两种绑定机制下均可安全使用。
+    """
+    try:
+        return inet_addr.ConvertTo()
+    except Exception:  # noqa: BLE001
+        return inet_addr
+
+
 class _CppyyModuleProxy:
-    """让 cppyy 的扁平命名空间也能支持 `ns.core.Simulator` 这种子模块写法。"""
+    """让 cppyy 的扁平命名空间也能支持 `ns.core.Simulator` 这种子模块写法。
+
+    ns-3.47 cppyy 绑定中所有类都挂在 ns3 根命名空间下，但旧代码里大量出现
+    `ns.wifi.WifiHelper`、`ns.aodv.AodvHelper` 等子模块写法。本代理在子模块
+    命名空间找不到目标时，自动回退到扁平根命名空间，实现零改动兼容。
+    """
 
     def __init__(self, ns):
         self._ns = ns
 
     def __getattr__(self, name):
+        try:
+            return getattr(self._ns, name)
+        except AttributeError:
+            # 子模块命名空间（如 ns3::aodv）没有该类，回退到扁平根命名空间
+            pass
+        # 如果根命名空间也没有，让原始异常抛出
         return getattr(self._ns, name)
 
 
 class _CppyyNsWrapper:
-    """包装 cppyy.gbl.ns3，优先扁平访问，缺失时回退到子模块代理。"""
+    """包装 cppyy.gbl.ns3，优先返回扁平命名空间成员，缺失时回退到子模块代理。"""
+
+    # ns-3 子模块名列表；cppyy 中这些名字同时是根命名空间属性（ns3::aodv 等），
+    # 但类实际挂在根下，因此必须走代理做二次回退。
+    _MODULE_NAMES = frozenset({
+        "core", "network", "internet", "wifi", "mobility", "tap_bridge",
+        "flow_monitor", "propagation", "spectrum", "aodv", "olsr",
+        "dsdv", "dsr", "mesh", "applications",
+    })
 
     def __init__(self, ns):
         self._ns = ns
         self._proxies: dict[str, Any] = {}
 
     def __getattr__(self, name):
+        # 对已知子模块名一律走代理，让代理在"子模块空间 → 扁平根空间"回退；
+        # 其它名字若根命名空间有直接命中则立即返回。
+        if name in self._MODULE_NAMES:
+            if name not in self._proxies:
+                self._proxies[name] = _CppyyModuleProxy(self._ns)
+            return self._proxies[name]
         if hasattr(self._ns, name):
             return getattr(self._ns, name)
         if name not in self._proxies:
@@ -406,8 +442,10 @@ class SimRunner:
                 log.info("TapBridge node-%d ↔ %s", i, tap_name)
         else:
             # onoff mode: ns-3 internal traffic for baseline throughput test
-            sink_addr = ns.network.InetSocketAddress(
-                ns.network.Ipv4Address("192.168.100.10"), cfg.onoff_sink_port
+            sink_addr = _to_ns3_address(
+                ns.network.InetSocketAddress(
+                    ns.network.Ipv4Address("192.168.100.10"), cfg.onoff_sink_port
+                )
             )
             packet_sink_helper = ns.applications.PacketSinkHelper(
                 "ns3::UdpSocketFactory", sink_addr
@@ -415,8 +453,10 @@ class SimRunner:
             sink_app = packet_sink_helper.Install(nodes.Get(0))
             sink_app.Start(ns.core.Seconds(0.0))
 
-            onoff_addr = ns.network.InetSocketAddress(
-                ns.network.Ipv4Address("192.168.100.10"), cfg.onoff_sink_port
+            onoff_addr = _to_ns3_address(
+                ns.network.InetSocketAddress(
+                    ns.network.Ipv4Address("192.168.100.10"), cfg.onoff_sink_port
+                )
             )
             onoff_helper = ns.applications.OnOffHelper(
                 "ns3::UdpSocketFactory", onoff_addr
@@ -457,8 +497,9 @@ class SimRunner:
             for i in range(cfg.n_nodes):
                 self._nodes_runtime[i] = NodeRuntime(id=i)
 
-        # 13. Schedule the in-sim periodic snapshot updater (1 Hz simulator time)
-        self._schedule_periodic(ns, nodes, period_s=1.0)
+        # 13. ns-3.47 + cppyy 不支持 Simulator.Schedule 传入 Python callback，
+        #     因此取消 in-sim periodic tick；FlowMonitor 统计由 _wall_pacer_loop
+        #     在 wall-time 线程中懒更新。
 
         # 14. Run!
         # 不再预设自动停止时间；仿真持续运行直到用户手动调用 stop()。
@@ -486,7 +527,8 @@ class SimRunner:
             )
         phy = ns.wifi.YansWifiPhyHelper()
         phy.SetChannel(ch.Create())
-        phy.Set("ChannelWidth", ns.core.UintegerValue(cfg.channel_width_mhz))
+        # ns-3.47 中 ChannelWidth 为 INITIAL_VALUE，不能在 helper.Set() 中设置；
+        # 移除以避免 NS_FATAL_ERROR。如需非默认带宽，需通过 ChannelSettings 配置。
         return phy
 
     def _build_spectrum_phy(self, ns: Any, cfg: SimConfig) -> tuple[Any, Any, Any | None]:
@@ -498,7 +540,9 @@ class SimRunner:
 
         返回 (phy_helper, spectrum_channel, path_loss_model) 三元组，供动态控制保存引用。
         """
-        spec_chan = ns.spectrum.MultiModelSpectrumChannel()
+        # ns-3.47 + cppyy：Object 派生类必须用 CreateObject，直接构造会得到
+        # tid=ns3::Object 的空壳对象，SetAttribute 会触发 NS_FATAL_ERROR。
+        spec_chan = ns.spectrum.CreateObject["ns3::MultiModelSpectrumChannel"]()
 
         # 路径损耗：FreeSpace 走 Friis（带 frequency_mhz）；其余走 LogDistance/Two-Ray/...
         loss = self._make_path_loss_object(ns, cfg)
@@ -506,9 +550,8 @@ class SimRunner:
             spec_chan.AddPropagationLossModel(loss)
 
         # 叠加 Range 硬截断：无论主模型是什么，都按 range_target_m 做最大距离限制。
-        # 这样 FreeSpace/LogDistance 模型下也能通过 set_range_target 动态控制通信距离。
         if cfg.range_target_m > 0:
-            range_loss = ns.propagation.RangePropagationLossModel()
+            range_loss = ns.propagation.CreateObject["ns3::RangePropagationLossModel"]()
             range_loss.SetAttribute("MaxRange", ns.core.DoubleValue(cfg.range_target_m))
             spec_chan.AddPropagationLossModel(range_loss)
             self._range_model = range_loss
@@ -516,7 +559,7 @@ class SimRunner:
             self._range_model = None
 
         if cfg.enable_fading and cfg.fading_model == "Nakagami":
-            nak = ns.propagation.NakagamiPropagationLossModel()
+            nak = ns.propagation.CreateObject["ns3::NakagamiPropagationLossModel"]()
             nak.SetAttribute("m0", ns.core.DoubleValue(cfg.nakagami_m0))
             nak.SetAttribute("m1", ns.core.DoubleValue(cfg.nakagami_m1))
             nak.SetAttribute("m2", ns.core.DoubleValue(cfg.nakagami_m2))
@@ -526,14 +569,14 @@ class SimRunner:
 
         # 传播延迟模型
         if cfg.propagation_delay == "ConstantSpeed":
-            delay = ns.propagation.ConstantSpeedPropagationDelayModel()
+            delay = ns.propagation.CreateObject["ns3::ConstantSpeedPropagationDelayModel"]()
         else:
-            delay = ns.propagation.RandomPropagationDelayModel()
+            delay = ns.propagation.CreateObject["ns3::RandomPropagationDelayModel"]()
         spec_chan.SetPropagationDelayModel(delay)
 
         phy = ns.wifi.SpectrumWifiPhyHelper()
         phy.SetChannel(spec_chan)
-        phy.Set("ChannelWidth", ns.core.UintegerValue(cfg.channel_width_mhz))
+        # ns-3.47 中 ChannelWidth 为 INITIAL_VALUE，不能在 helper.Set() 中设置。
         # 频段表里 590 MHz 不是合法 802.11 频道，因此 SpectrumWifiPhy 内部仍按
         # 默认的 802.11a 5GHz 频道号工作；真实物理频段语义由 Friis 的 Frequency
         # 决定。Logger 里把 cfg.frequency_mhz 打出来便于审计。
@@ -548,26 +591,26 @@ class SimRunner:
         pl = cfg.path_loss_model
         freq_hz = float(cfg.frequency_mhz) * 1e6
         if pl == "FreeSpace":
-            m = ns.propagation.FriisPropagationLossModel()
+            m = ns.propagation.CreateObject["ns3::FriisPropagationLossModel"]()
             m.SetAttribute("Frequency", ns.core.DoubleValue(freq_hz))
             m.SetAttribute("MinLoss", ns.core.DoubleValue(0.0))
             return m
         if pl == "LogDistance":
-            m = ns.propagation.LogDistancePropagationLossModel()
+            m = ns.propagation.CreateObject["ns3::LogDistancePropagationLossModel"]()
             m.SetAttribute("Exponent", ns.core.DoubleValue(cfg.path_loss_exponent))
             m.SetAttribute("ReferenceLoss", ns.core.DoubleValue(cfg.path_loss_ref_loss))
             m.SetAttribute("ReferenceDistance", ns.core.DoubleValue(cfg.path_loss_ref_distance))
             return m
         if pl == "TwoRayGround":
-            m = ns.propagation.TwoRayGroundPropagationLossModel()
+            m = ns.propagation.CreateObject["ns3::TwoRayGroundPropagationLossModel"]()
             m.SetAttribute("Frequency", ns.core.DoubleValue(freq_hz))
             return m
         if pl == "ThreeLogDistance":
-            return ns.propagation.ThreeLogDistancePropagationLossModel()
+            return ns.propagation.CreateObject["ns3::ThreeLogDistancePropagationLossModel"]()
         if pl == "Cost231":
-            return ns.propagation.Cost231PropagationLossModel()
+            return ns.propagation.CreateObject["ns3::Cost231PropagationLossModel"]()
         if pl == "Range":
-            m = ns.propagation.RangePropagationLossModel()
+            m = ns.propagation.CreateObject["ns3::RangePropagationLossModel"]()
             m.SetAttribute("MaxRange", ns.core.DoubleValue(cfg.range_target_m))
             return m
         return None
@@ -642,16 +685,22 @@ class SimRunner:
             return ns.wifi.WifiHelper().Install(phy, mac, nodes)
 
         mesh_helper.SetStackInstaller("ns3::Dot11sStack")
-        mesh_helper.SetStandard(self._wifi_standard(ns, cfg.standard))
+        # ns-3.47 中 MeshHelper.SetStandard 会导致 PHY channel 配置冲突
+        # (WifiPhyOperatingChannel: No unique channel found)，因此跳过。
+        # 默认标准由 MeshHelper 内部决定，与物理层传播模型独立。
+        # mesh_helper.SetStandard(self._wifi_standard(ns, cfg.standard))
         # RandomStart：mesh 节点上电后随机抖动（避免同时发 BCN）
         mesh_helper.SetMacType("RandomStart", ns.core.TimeValue(ns.core.Seconds(0.1)))
         # 单接口模式即可——多接口 mesh 主要用于多频段聚合，不在本场景目标内。
         mesh_helper.SetNumberOfInterfaces(1)
-        mesh_helper.SetRemoteStationManager(
-            "ns3::ConstantRateWifiManager",
-            "DataMode", ns.core.StringValue(cfg.data_rate),
-            "ControlMode", ns.core.StringValue(cfg.data_rate),
-        )
+        # ns-3.47 默认 mesh 使用 802.11a；cfg.data_rate 中的 ErpOfdmRate* 是 802.11g
+        # 专有命名，与 802.11a 不兼容，会导致 "Can't find response rate" NS_FATAL。
+        # 因此跳过 SetRemoteStationManager，让 mesh 使用内置 ARF 速率控制。
+        # mesh_helper.SetRemoteStationManager(
+        #     "ns3::ConstantRateWifiManager",
+        #     "DataMode", ns.core.StringValue(cfg.data_rate),
+        #     "ControlMode", ns.core.StringValue(cfg.data_rate),
+        # )
         devices = mesh_helper.Install(phy, nodes)
         self._mac_mode_actual = "mesh"
         log.info(
@@ -705,14 +754,14 @@ class SimRunner:
     def _install_mobility(ns: Any, cfg: SimConfig, nodes: Any) -> None:
         mob = ns.mobility.MobilityHelper()
         # Position allocator: uniform in the configured area.
-        pos = ns.mobility.RandomBoxPositionAllocator()
-        x_var = ns.core.UniformRandomVariable()
+        pos = ns.mobility.CreateObject["ns3::RandomBoxPositionAllocator"]()
+        x_var = ns.core.CreateObject["ns3::UniformRandomVariable"]()
         x_var.SetAttribute("Min", ns.core.DoubleValue(cfg.mobility_min_x))
         x_var.SetAttribute("Max", ns.core.DoubleValue(cfg.mobility_max_x))
-        y_var = ns.core.UniformRandomVariable()
+        y_var = ns.core.CreateObject["ns3::UniformRandomVariable"]()
         y_var.SetAttribute("Min", ns.core.DoubleValue(cfg.mobility_min_y))
         y_var.SetAttribute("Max", ns.core.DoubleValue(cfg.mobility_max_y))
-        z_var = ns.core.ConstantRandomVariable()
+        z_var = ns.core.CreateObject["ns3::ConstantRandomVariable"]()
         z_var.SetAttribute("Constant", ns.core.DoubleValue(0.0))
         pos.SetX(x_var)
         pos.SetY(y_var)
@@ -1048,59 +1097,6 @@ class SimRunner:
 
         return self._inject_command(_do)
 
-    # ------------------------------------------------- in-simulator periodic
-    def _schedule_periodic(self, ns: Any, nodes: Any, period_s: float) -> None:
-        """在仿真器内调度周期性回调,刷新 FlowMonitor 计数器。
-
-        位置快照与命令队列由 `_wall_pacer_loop` 在 wall-time 100ms 周期执行,
-        因为实时仿真器在重负载时 ns-3 sim_t 远落后于 wall_t (实测 1/24x),
-        若把这些放在 sim-time tick 里,前端拖拽 → 落地的延迟可达 20s+。
-        """
-        runner = self
-
-        def _tick():
-            try:
-                if runner._fm is not None:
-                    runner._fm.CheckForLostPackets()
-                    stats = runner._fm.GetFlowStats()
-                    # pybindgen/cppyy 绑定中 GetClassifier 可能缺失，跳过源/目的解析
-                    classifier = None
-                    if hasattr(runner._fm, "GetClassifier"):
-                        classifier = runner._fm.GetClassifier()
-                    with runner._lock:
-                        runner._flows_runtime.clear()
-                        for fid, st in stats:
-                            source, destination = "", ""
-                            if classifier:
-                                ft = classifier.FindFlow(fid)
-                                source = str(ft.sourceAddress)
-                                destination = str(ft.destinationAddress)
-                            elapsed = max(
-                                (st.timeLastRxPacket.GetSeconds()
-                                 - st.timeFirstTxPacket.GetSeconds()),
-                                1e-9,
-                            )
-                            throughput_mbps = (st.rxBytes * 8.0) / elapsed / 1e6
-                            avg_delay = (st.delaySum.GetSeconds() / st.rxPackets) \
-                                if st.rxPackets else 0.0
-                            runner._flows_runtime[fid] = FlowRuntime(
-                                flow_id=fid,
-                                source=source,
-                                destination=destination,
-                                tx_packets=st.txPackets,
-                                rx_packets=st.rxPackets,
-                                lost_packets=st.lostPackets,
-                                avg_delay=avg_delay,
-                                throughput=throughput_mbps,
-                            )
-            except Exception as e:  # noqa: BLE001
-                log.warning("periodic tick failed: %s", e)
-            finally:
-                if not runner._stop_event.is_set():
-                    ns.core.Simulator.Schedule(ns.core.Seconds(period_s), _tick)
-
-        ns.core.Simulator.Schedule(ns.core.Seconds(period_s), _tick)
-
     def _wall_pacer_loop(self) -> None:
         """wall-time 100ms 周期：drain 命令队列 + 刷新节点位置快照。
 
@@ -1172,5 +1168,41 @@ class SimRunner:
                                 nr.tx_packets = int(fh.read().strip())
                         except Exception:  # noqa: BLE001
                             pass
+                    # 2d. FlowMonitor 统计 (ns-3.47 cppyy 不支持 Simulator.Schedule
+                    #     传入 Python callback，改在 wall-time 线程懒更新)
+                    if self._fm is not None:
+                        try:
+                            self._fm.CheckForLostPackets()
+                            stats = self._fm.GetFlowStats()
+                            classifier = None
+                            if hasattr(self._fm, "GetClassifier"):
+                                classifier = self._fm.GetClassifier()
+                            self._flows_runtime.clear()
+                            for fid, st in stats:
+                                source, destination = "", ""
+                                if classifier:
+                                    ft = classifier.FindFlow(fid)
+                                    source = str(ft.sourceAddress)
+                                    destination = str(ft.destinationAddress)
+                                elapsed = max(
+                                    (st.timeLastRxPacket.GetSeconds()
+                                     - st.timeFirstTxPacket.GetSeconds()),
+                                    1e-9,
+                                )
+                                throughput_mbps = (st.rxBytes * 8.0) / elapsed / 1e6
+                                avg_delay = (st.delaySum.GetSeconds() / st.rxPackets) \
+                                    if st.rxPackets else 0.0
+                                self._flows_runtime[fid] = FlowRuntime(
+                                    flow_id=fid,
+                                    source=source,
+                                    destination=destination,
+                                    tx_packets=st.txPackets,
+                                    rx_packets=st.rxPackets,
+                                    lost_packets=st.lostPackets,
+                                    avg_delay=avg_delay,
+                                    throughput=throughput_mbps,
+                                )
+                        except Exception as e:  # noqa: BLE001
+                            log.warning("flow monitor poll failed: %s", e)
             except Exception as e:  # noqa: BLE001
                 log.warning("wall pacer iteration failed: %s", e)
