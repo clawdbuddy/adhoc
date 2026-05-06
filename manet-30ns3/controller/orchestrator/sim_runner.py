@@ -1,14 +1,14 @@
-"""ns-3 Python 仿真运行器 —— scratch/manet-30nodes.cc 的移植版。
+"""ns-3 Python 仿真运行器 —— scratch/manet-30nodes.cc 的移植版（NS-3.47 + cppyy 专用）。
 
 线程模型：
     ns-3 仿真器在独立守护线程中启动；FastAPI 在主 asyncio 循环中运行。
     仿真线程拥有 ns-3 全局状态。
 
-TapBridge 模式（UseBridge）：每个 ns-3 WifiNetDevice 在 L2 上与宿主 TAP（tap-{i}）桥接。
-对应容器的用户流量经过 ns-3 的 AdHoc/Mesh PHY/MAC 信道模型。
-在 UseBridge 模式下，ns-3 不对用户载荷做 IP 路由 —— L3 的 `routingProtocol` 设置
-仅安装在 ns-3 协议栈上，且只作用于 ns-3 自身生成的报文（控制面）。
-这与旧版 C++ 实现一致；多跳用户载荷路由必须由容器内的软件处理。
+已知限制（NS-3.47 + cppyy）：
+    TapBridge + WifiNetDevice（802.11g/n/ax）组合会触发上游 segfault
+    （Txop::Queue / Txop::StartAccessAfterEvent），本文件无法规避。
+    因此当前 3.47 路线仅保留构建与代码结构，实际仿真需等待上游修复
+    或降级到 NS-3.36 + pybindgen。
 """
 from __future__ import annotations
 
@@ -26,10 +26,7 @@ log = logging.getLogger(__name__)
 
 
 def _to_ns3_address(inet_addr: Any) -> Any:
-    """cppyy 绑定中 InetSocketAddress 无法隐式转换为 Address，需显式调用 ConvertTo。
-
-    pybindgen 路线无此问题；本函数在两种绑定机制下均可安全使用。
-    """
+    """cppyy 绑定中 InetSocketAddress 无法隐式转换为 Address，需显式调用 ConvertTo。"""
     try:
         return inet_addr.ConvertTo()
     except Exception:  # noqa: BLE001
@@ -87,41 +84,15 @@ class _CppyyNsWrapper:
 
 
 def _import_ns():
-    """惰性导入 ns-3 绑定；将 ImportError 推迟到仿真真正启动时。
+    """惰性导入 ns-3 cppyy 绑定；将 ImportError 推迟到仿真真正启动时。
 
-    本工程有两条部署路径,Python 绑定机制不同,这里 try/except 双路径兼容:
-
-    1) cppyy 路线（NS-3.40+ / NS-3.47 Docker 镜像）:
-       `from ns import ns` 拿到 cppyy 暴露的统一 C++ 命名空间对象;
-       所有类都直接挂在 ns3 命名空间下（如 ns.Simulator）。
-       用 _CppyyNsWrapper 包装后，现有代码里的 `ns.core.Simulator`
-       等子模块写法无需改动。
-    2) pybindgen 路线（Docker 镜像内 NS-3.36 源码编译）:
-       build 出来的 `ns/__init__.py` 是空文件,必须为每个用到的子模块
-       显式 `import ns.X`,才会把它注入到 `ns` 包命名空间下;
-       完成后 `ns.core.Simulator` 这种统一访问才不会 AttributeError。
+    NS-3.47 使用 cppyy 作为唯一 Python 绑定后端。`from ns import ns`
+    拿到 cppyy 暴露的统一 C++ 命名空间对象，所有类挂在扁平 ns3 根命名空间下。
+    用 _CppyyNsWrapper 包装后，代码里的 `ns.core.Simulator`、`ns.wifi.WifiHelper`
+    等子模块写法无需改动。
     """
-    try:
-        from ns import ns  # noqa: WPS433 — cppyy 统一命名空间
-        return _CppyyNsWrapper(ns)
-    except ImportError:
-        import ns  # noqa: WPS433
-        import ns.core  # noqa: F401, WPS433
-        import ns.network  # noqa: F401, WPS433
-        import ns.internet  # noqa: F401, WPS433
-        import ns.wifi  # noqa: F401, WPS433
-        import ns.mobility  # noqa: F401, WPS433
-        import ns.tap_bridge  # noqa: F401, WPS433
-        import ns.flow_monitor  # noqa: F401, WPS433
-        import ns.propagation  # noqa: F401, WPS433
-        import ns.spectrum  # noqa: F401, WPS433
-        import ns.aodv  # noqa: F401, WPS433
-        import ns.olsr  # noqa: F401, WPS433
-        import ns.dsdv  # noqa: F401, WPS433
-        import ns.dsr  # noqa: F401, WPS433
-        import ns.mesh  # noqa: F401, WPS433
-        import ns.applications  # noqa: F401, WPS433
-        return ns
+    from ns import ns  # noqa: WPS433
+    return _CppyyNsWrapper(ns)
 
 
 @dataclass
@@ -184,7 +155,7 @@ class SimRunner:
         self._propagation_loss_model: Any = None
         self._range_model: Any = None
         self._phy_model_type: str = ""
-        # 实际使用的 MAC 模式;若 mesh 因 pybindgen 绑定缺失而 fallback,这里会变成 "adhoc"
+        # 实际使用的 MAC 模式;若 mesh 初始化失败降级为 adhoc,这里记录实际生效值
         self._mac_mode_actual: str = ""
         # 运行时增删节点所需 helper（仅在 _build_and_run 完成后有效）
         self._phy_helper: Any = None
@@ -351,18 +322,17 @@ class SimRunner:
     def _build_and_run(self, ns: Any) -> None:
         cfg = self.config
 
-        # 1. BestEffort simulator (非实时，CPU 全速推进，验证纯 ns-3 内部吞吐量上限)
-        # 注：RealtimeSimulatorImpl 受 wall-time 约束，TAP 桥接下带宽上限约 1.5-2Mbps。
-        # 切回默认 BestEffort 以验证理论带宽，但 sim-time 与 wall-time 不同步，
-        # iperf3 等 wall-time 工具的统计口径会失真，需以 ns-3 FlowMonitor 为准。
-        # ns.core.GlobalValue.Bind(
-        #     "SimulatorImplementationType",
-        #     ns.core.StringValue("ns3::RealtimeSimulatorImpl"),
-        # )
-        # ns.core.Config.Set(
-        #     "ns3::RealtimeSimulatorImpl::SynchronizationMode",
-        #     ns.core.StringValue("HardLimit"),
-        # )
+        # 1. RealtimeSimulatorImpl 是 TapBridge 在 UseLocal 模式下保持运行的前提；
+        #    BestEffort 在事件队列为空时会立即返回，导致仿真线程退出。
+        #    注：RealtimeSimulatorImpl 受 wall-time 约束，TAP 桥接下带宽上限约 1.5-2Mbps。
+        ns.core.GlobalValue.Bind(
+            "SimulatorImplementationType",
+            ns.core.StringValue("ns3::RealtimeSimulatorImpl"),
+        )
+        ns.core.Config.Set(
+            "ns3::RealtimeSimulatorImpl::SynchronizationMode",
+            ns.core.StringValue("HardLimit"),
+        )
         ns.core.GlobalValue.Bind("ChecksumEnabled", ns.core.BooleanValue(True))
         ns.core.RngSeedManager.SetSeed(cfg.seed)
         ns.core.RngSeedManager.SetRun(cfg.run)
@@ -668,13 +638,14 @@ class SimRunner:
         TapBridge UseBridge 仍可使用——整张 mesh 在容器视角下表现为单一 L2
         广播域，距离超出单跳 LOS 的节点之间的报文由 HWMP 路径选择算法自动
         通过中间节点中继。不再需要在容器内运行额外的路由 daemon。
-
-        回退：pybindgen 绑定中 MeshHelper.Install 可能缺失，此时降级为 adhoc。
         """
         mesh_helper = ns.mesh.MeshHelper.Default()
-        if not hasattr(mesh_helper, "Install"):
+        # cppyy 中 hasattr 对模板/重载方法不可靠，改用 try/except 探测
+        try:
+            _ = mesh_helper.Install
+        except AttributeError:
             log.warning(
-                "MeshHelper.Install 在 pybindgen 绑定中缺失,降级为 adhoc(L2 多跳由 ns-3 mesh 转发的语义将丢失,跨多跳的容器流量需要容器内额外路由协议)"
+                "MeshHelper.Install 不可用,降级为 adhoc"
             )
             self._mac_mode_actual = "adhoc-fallback"
             mac = ns.wifi.WifiMacHelper()
@@ -898,9 +869,9 @@ class SimRunner:
             pass
 
         # 方法2: 通过 GetObject 转换为 WifiNetDevice
+        # ns-3.47 + cppyy：模板方法 GetObject 必须用方括号语法实例化
         try:
-            type_id = ns.wifi.WifiNetDevice.GetTypeId()
-            wifi_dev = device.GetObject(type_id)
+            wifi_dev = device.GetObject[ns.wifi.WifiNetDevice]()
             if wifi_dev is not None:
                 phy = wifi_dev.GetPhy()
                 if phy is not None:
@@ -910,14 +881,13 @@ class SimRunner:
 
         # 方法3: MeshPointDevice - 获取第一个底层接口
         try:
-            type_id = ns.mesh.MeshPointDevice.GetTypeId()
-            mesh_dev = device.GetObject(type_id)
+            mesh_dev = device.GetObject[ns.mesh.MeshPointDevice]()
             if mesh_dev is not None:
                 if hasattr(mesh_dev, "GetInterfaces"):
                     interfaces = mesh_dev.GetInterfaces()
                     if interfaces.GetN() > 0:
                         iface = interfaces.Get(0)
-                        wifi_dev = iface.GetObject(ns.wifi.WifiNetDevice.GetTypeId())
+                        wifi_dev = iface.GetObject[ns.wifi.WifiNetDevice]()
                         if wifi_dev is not None:
                             phy = wifi_dev.GetPhy()
                             if phy is not None:
@@ -943,7 +913,7 @@ class SimRunner:
             if ns is None or self._nodes_container is None:
                 raise RuntimeError("ns or nodes_container not ready")
             node = self._nodes_container.Get(node_id)
-            mm = node.GetObject(ns.mobility.MobilityModel.GetTypeId())
+            mm = node.GetObject[ns.mobility.MobilityModel]()
             if not mm:
                 raise RuntimeError("mobility model not found on node")
             mm.SetPosition(ns.core.Vector(x, y, z))
@@ -1134,7 +1104,8 @@ class SimRunner:
                     # 2a. 位置
                     for i in range(n_nodes):
                         node = self._nodes_container.Get(i)
-                        mm = node.GetObject(ns.mobility.MobilityModel.GetTypeId())
+                        # ns-3.47 + cppyy：模板方法 GetObject 用方括号语法
+                        mm = node.GetObject[ns.mobility.MobilityModel]()
                         if mm:
                             pos = mm.GetPosition()
                             nr = self._nodes_runtime.setdefault(i, NodeRuntime(id=i))
