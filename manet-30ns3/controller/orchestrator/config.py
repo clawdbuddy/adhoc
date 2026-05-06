@@ -213,9 +213,15 @@ def _preset(**overrides: Any) -> SimConfig:
 
 
 PRESETS: dict[str, SimConfig] = {
-    # 默认预设 = 用户目标场景：SpectrumWifiPhy + 802.11s mesh 多跳，
-    # 中心频率 590 MHz（覆盖 500–680 MHz UHF 频段），4 km 视距，5 km × 5 km 活动区。
-    "default": _preset(),
+    # 默认预设 = 用户目标场景：YansWifiPhy + Adhoc / Mesh，
+    # 2.4 GHz WiFi 频段（802.11g Channel 1, 2412 MHz），4 km 视距，5 km × 5 km 活动区。
+    # 保留衰落模型和随机移动，兼顾真实感与性能。
+    "default": _preset(
+        phyModel="yans",
+        standard="80211g",
+        frequencyMhz=2412,
+        dataRate="ErpOfdmRate24Mbps",
+    ),
 
     # 城区——视距受阻、路径衰减更陡、节点密集，频段维持 UHF。
     "urban": _preset(
