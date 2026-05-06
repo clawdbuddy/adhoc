@@ -245,6 +245,7 @@ PRESETS: dict[str, SimConfig] = {
         ssid="adhoc-debug",
         macMode="adhoc",
         routingProtocol="none",
+        phyModel="yans",
         mobilityModel="grid",
         mobilityMaxX=300.0, mobilityMaxY=300.0,
         gridMinX=10.0, gridMinY=10.0,
