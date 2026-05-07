@@ -154,18 +154,15 @@ export interface TelemetryEnv {
   frequencyMhz: number;
   channelWidthMhz: number;
   rangeTargetM: number;
+  pathLossModel?: string;
 }
 
 export const STANDARDS = [
-  '80211b', '80211a', '80211g',
   '80211n-2.4GHz', '80211n-5GHz',
   '80211ac', '80211ax-2.4GHz', '80211ax-5GHz',
 ];
 
 export const DATA_RATES: Record<string, string[]> = {
-  '80211b': ['DsssRate1Mbps', 'DsssRate2Mbps', 'DsssRate5_5Mbps', 'DsssRate11Mbps'],
-  '80211a': ['OfdmRate6Mbps', 'OfdmRate9Mbps', 'OfdmRate12Mbps', 'OfdmRate18Mbps', 'OfdmRate24Mbps', 'OfdmRate36Mbps', 'OfdmRate48Mbps', 'OfdmRate54Mbps'],
-  '80211g': ['ErpOfdmRate6Mbps', 'ErpOfdmRate9Mbps', 'ErpOfdmRate12Mbps', 'ErpOfdmRate18Mbps', 'ErpOfdmRate24Mbps', 'ErpOfdmRate36Mbps', 'ErpOfdmRate48Mbps', 'ErpOfdmRate54Mbps'],
   '80211n-2.4GHz': ['HtMcs0', 'HtMcs1', 'HtMcs2', 'HtMcs3', 'HtMcs4', 'HtMcs5', 'HtMcs6', 'HtMcs7'],
   '80211n-5GHz': ['HtMcs0', 'HtMcs1', 'HtMcs2', 'HtMcs3', 'HtMcs4', 'HtMcs5', 'HtMcs6', 'HtMcs7'],
   '80211ac': ['VhtMcs0', 'VhtMcs1', 'VhtMcs2', 'VhtMcs3', 'VhtMcs4', 'VhtMcs5', 'VhtMcs6', 'VhtMcs7', 'VhtMcs8', 'VhtMcs9'],

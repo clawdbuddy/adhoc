@@ -98,6 +98,7 @@ class DockerMgr:
         netns.move_to_netns(
             veth_peer, pid,
             rename_to="eth0", ip=spec.ip, prefixlen=24,
+            mac=netns.mesh_mac(spec.id),
         )
         netns.create_tap(tap, spec.id)
 

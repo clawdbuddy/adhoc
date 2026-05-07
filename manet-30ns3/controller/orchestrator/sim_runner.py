@@ -4,11 +4,13 @@
     ns-3 仿真器在独立守护线程中启动；FastAPI 在主 asyncio 循环中运行。
     仿真线程拥有 ns-3 全局状态。
 
-已知限制（NS-3.47 + cppyy）：
-    TapBridge + WifiNetDevice（802.11g/n/ax）组合会触发上游 segfault
-    （Txop::Queue / Txop::StartAccessAfterEvent），本文件无法规避。
-    因此当前 3.47 路线仅保留构建与代码结构，实际仿真需等待上游修复
-    或降级到 NS-3.36 + pybindgen。
+NS-3.47 + cppyy 已知限制与可行配置：
+    - AdhocWifiMac + TapBridge + RealtimeSimulatorImpl 会触发上游 segfault
+      （Txop::Queue / Txop::StartAccessAfterEvent），本文件无法规避。
+    - MeshPointDevice（802.11s/HWMP）+ TapBridge + RealtimeSimulatorImpl 工作正常。
+    - 容器 eth0 的 MAC 必须与 ns-3 mesh 设备的 MAC 一致（由 netns.mesh_mac 生成），
+      否则 802.11s 会把容器视为"桥接客户端"而无法正确转发单播帧。
+    - 因此当前 3.47 路线强制使用 mac_mode="mesh"，adhoc 模式已禁用。
 """
 from __future__ import annotations
 
@@ -129,6 +131,7 @@ class EnvState:
     frequency_mhz: int = 590
     channel_width_mhz: int = 20
     range_target_m: float = 4000.0
+    path_loss_model: str = "FreeSpace"
 
 
 class SimRunner:
@@ -176,6 +179,7 @@ class SimRunner:
             frequency_mhz=int(config.frequency_mhz),
             channel_width_mhz=int(config.channel_width_mhz),
             range_target_m=float(config.range_target_m),
+            path_loss_model=str(config.path_loss_model),
         )
 
     # ---------------------------------------------------- public lifecycle
@@ -252,6 +256,7 @@ class SimRunner:
                 frequency_mhz=self._env_state.frequency_mhz,
                 channel_width_mhz=self._env_state.channel_width_mhz,
                 range_target_m=self._env_state.range_target_m,
+                path_loss_model=self._env_state.path_loss_model,
             )
 
     def find_path(self, src_id: int, dst_id: int) -> list[int] | None:
@@ -352,7 +357,9 @@ class SimRunner:
             self._propagation_loss_model = loss
             self._phy_model_type = "spectrum"
         else:
-            phy = self._build_yans_phy(ns, cfg)
+            phy, loss, range_loss = self._build_yans_phy(ns, cfg)
+            self._propagation_loss_model = loss
+            self._range_model = range_loss
             self._phy_model_type = "yans"
         phy.Set("TxPowerStart", ns.core.DoubleValue(cfg.tx_power_start))
         phy.Set("TxPowerEnd", ns.core.DoubleValue(cfg.tx_power_end))
@@ -368,19 +375,14 @@ class SimRunner:
         self._apply_rate_control(ns, wifi, cfg)
 
         # 5. MAC：mac_mode="mesh" 启用 802.11s + HWMP，由 ns-3 mesh 模块在 L2
-        #    层完成多跳转发；mac_mode="adhoc" 维持原 AdhocWifiMac（无多跳，由
-        #    上层路由协议或容器内软件负责）。
-        if cfg.mac_mode == "mesh":
-            devices = self._install_mesh(ns, cfg, phy, nodes)
-        else:
-            mac = ns.wifi.WifiMacHelper()
-            mac.SetType(
-                "ns3::AdhocWifiMac",
-                "Ssid", ns.wifi.SsidValue(ns.wifi.Ssid(cfg.ssid)),
-                "QosSupported", ns.core.BooleanValue(True),
+        #    层完成多跳转发。NS-3.47 + cppyy 下 adhoc 模式会触发 Txop segfault，
+        #    因此强制使用 mesh 模式。
+        if cfg.mac_mode != "mesh":
+            log.warning(
+                "mac_mode='%s' 在 NS-3.47 + cppyy 下会导致 segfault，强制切换到 mesh",
+                cfg.mac_mode,
             )
-            devices = wifi.Install(phy, mac, nodes)
-            self._mac_mode_actual = "adhoc"
+        devices = self._install_mesh(ns, cfg, phy, nodes)
 
         # 6. Mobility
         self._install_mobility(ns, cfg, nodes)
@@ -474,32 +476,89 @@ class SimRunner:
         # 14. Run!
         # 不再预设自动停止时间；仿真持续运行直到用户手动调用 stop()。
         # simulation_time 仅作为配置参考，不再调度 Simulator.Stop()。
+        #
+        # NS-3.47 + cppyy 的 Simulator.Run() 会阻塞并持有 CPython GIL，导致 FastAPI
+        # 的 asyncio 事件循环冻结。通过 cppyy.cppdef 编译一个释放 GIL 的 C++ 包装器，
+        # 让 Run() 在 C++ 层执行时释放 GIL，使 wall-pacer 线程和 API 主循环得以运行。
         log.info("Simulator.Run() begin (manual stop mode)")
-        ns.core.Simulator.Run()
-        log.info("Simulator.Run() end")
+        try:
+            import cppyy
+            if not hasattr(cppyy.gbl, "ns3_simulator_run_release_gil"):
+                cppyy.cppdef("""
+                extern "C" {
+                    void* PyEval_SaveThread(void);
+                    void  PyEval_RestoreThread(void*);
+                }
+                void ns3_simulator_run_release_gil() {
+                    void* save = PyEval_SaveThread();
+                    try {
+                        ns3::Simulator::Run();
+                    } catch (...) {
+                        PyEval_RestoreThread(save);
+                        throw;
+                    }
+                    PyEval_RestoreThread(save);
+                }
+                """)
+            cppyy.gbl.ns3_simulator_run_release_gil()
+            log.info("Simulator.Run() end (GIL released)")
+        except Exception as compile_err:
+            log.warning(
+                "GIL-releasing wrapper failed: %s. "
+                "Falling back to direct Run() — API will freeze during simulation.",
+                compile_err,
+            )
+            ns.core.Simulator.Run()
+            log.info("Simulator.Run() end")
 
     # -------------------------------------------------- channel / propagation
-    def _build_yans_phy(self, ns: Any, cfg: SimConfig) -> Any:
-        """YansWifiChannel + YansWifiPhyHelper（旧路径，向后兼容）。"""
+    def _build_yans_phy(self, ns: Any, cfg: SimConfig) -> tuple[Any, Any | None, Any | None]:
+        """YansWifiChannel + YansWifiPhyHelper（旧路径，向后兼容）。
+
+        返回 (phy_helper, path_loss_model, range_model) 三元组，供动态控制保存引用。
+        """
         ch = ns.wifi.YansWifiChannelHelper()
         if cfg.propagation_delay == "ConstantSpeed":
             ch.SetPropagationDelay("ns3::ConstantSpeedPropagationDelayModel")
         else:
             ch.SetPropagationDelay("ns3::RandomPropagationDelayModel")
-        self._add_yans_path_loss(ns, ch, cfg)
+        channel = ch.Create()
+
+        # 主路径损耗模型
+        loss = self._make_path_loss_object(ns, cfg)
+        if loss is not None:
+            channel.SetPropagationLossModel(loss)
+
+        # 衰落模型
         if cfg.enable_fading:
-            self._add_yans_fading(ns, ch, cfg)
+            nak = ns.propagation.CreateObject["ns3::NakagamiPropagationLossModel"]()
+            nak.SetAttribute("m0", ns.core.DoubleValue(cfg.nakagami_m0))
+            nak.SetAttribute("m1", ns.core.DoubleValue(cfg.nakagami_m1))
+            nak.SetAttribute("m2", ns.core.DoubleValue(cfg.nakagami_m2))
+            nak.SetAttribute("Distance1", ns.core.DoubleValue(cfg.nakagami_d1))
+            nak.SetAttribute("Distance2", ns.core.DoubleValue(cfg.nakagami_d2))
+            if loss is not None:
+                loss.SetNext(nak)
+            else:
+                channel.SetPropagationLossModel(nak)
+
         # 叠加 Range 硬截断（Yans 路径）
+        range_loss = None
         if cfg.range_target_m > 0:
-            ch.AddPropagationLoss(
-                "ns3::RangePropagationLossModel",
-                "MaxRange", ns.core.DoubleValue(cfg.range_target_m),
-            )
+            range_loss = ns.propagation.CreateObject["ns3::RangePropagationLossModel"]()
+            range_loss.SetAttribute("MaxRange", ns.core.DoubleValue(cfg.range_target_m))
+            if loss is not None:
+                loss.SetNext(range_loss)
+            elif cfg.enable_fading:
+                nak.SetNext(range_loss)
+            else:
+                channel.SetPropagationLossModel(range_loss)
+
         phy = ns.wifi.YansWifiPhyHelper()
-        phy.SetChannel(ch.Create())
+        phy.SetChannel(channel)
         # ns-3.47 中 ChannelWidth 为 INITIAL_VALUE，不能在 helper.Set() 中设置；
         # 移除以避免 NS_FATAL_ERROR。如需非默认带宽，需通过 ChannelSettings 配置。
-        return phy
+        return phy, loss, range_loss
 
     def _build_spectrum_phy(self, ns: Any, cfg: SimConfig) -> tuple[Any, Any, Any | None]:
         """SpectrumWifiPhy + MultiModelSpectrumChannel。
@@ -684,15 +743,12 @@ class SimRunner:
     @staticmethod
     def _wifi_standard(ns: Any, label: str) -> Any:
         return {
-            "80211b": ns.wifi.WIFI_STANDARD_80211b,
-            "80211a": ns.wifi.WIFI_STANDARD_80211a,
-            "80211g": ns.wifi.WIFI_STANDARD_80211g,
             "80211n-2.4GHz": ns.wifi.WIFI_STANDARD_80211n,
             "80211n-5GHz": ns.wifi.WIFI_STANDARD_80211n,
             "80211ac": ns.wifi.WIFI_STANDARD_80211ac,
             "80211ax-2.4GHz": ns.wifi.WIFI_STANDARD_80211ax,
             "80211ax-5GHz": ns.wifi.WIFI_STANDARD_80211ax,
-        }.get(label, ns.wifi.WIFI_STANDARD_80211g)
+        }.get(label, ns.wifi.WIFI_STANDARD_80211n)
 
     @staticmethod
     def _apply_rate_control(ns: Any, wifi: Any, cfg: SimConfig) -> None:
@@ -766,18 +822,25 @@ class SimRunner:
                 "Alpha", ns.core.DoubleValue(cfg.gm_alpha),
             )
         elif m == "grid":
-            grid_alloc = ns.mobility.GridPositionAllocator()
-            grid_alloc.SetMinX(cfg.grid_min_x)
-            grid_alloc.SetMinY(cfg.grid_min_y)
-            grid_alloc.SetDeltaX(cfg.grid_delta_x)
-            grid_alloc.SetDeltaY(cfg.grid_delta_y)
-            grid_alloc.SetN(cfg.grid_width)
-            mob.SetPositionAllocator(grid_alloc)
             mob.SetMobilityModel("ns3::ConstantPositionMobilityModel")
         else:  # constant
             mob.SetMobilityModel("ns3::ConstantPositionMobilityModel")
 
         mob.Install(nodes)
+
+        if m == "grid":
+            for i in range(nodes.GetN()):
+                node = nodes.Get(i)
+                mm = node.GetObject[ns.mobility.MobilityModel]()
+                row = i // cfg.grid_width
+                col = i % cfg.grid_width
+                if cfg.grid_layout == "ColumnFirst":
+                    row = i % cfg.grid_width
+                    col = i // cfg.grid_width
+                x = cfg.grid_min_x + col * cfg.grid_delta_x
+                y = cfg.grid_min_y + row * cfg.grid_delta_y
+                if mm:
+                    mm.SetPosition(ns.core.Vector(x, y, 0.0))
 
     # -------------------------------------------------------------- routing
     @staticmethod
@@ -884,15 +947,37 @@ class SimRunner:
             mesh_dev = device.GetObject[ns.mesh.MeshPointDevice]()
             if mesh_dev is not None:
                 if hasattr(mesh_dev, "GetInterfaces"):
-                    interfaces = mesh_dev.GetInterfaces()
-                    if interfaces.GetN() > 0:
-                        iface = interfaces.Get(0)
-                        wifi_dev = iface.GetObject[ns.wifi.WifiNetDevice]()
+                    try:
+                        interfaces = mesh_dev.GetInterfaces()
+                        if interfaces.GetN() > 0:
+                            iface = interfaces.Get(0)
+                            wifi_dev = iface.GetObject[ns.wifi.WifiNetDevice]()
+                            if wifi_dev is not None:
+                                phy = wifi_dev.GetPhy()
+                                if phy is not None:
+                                    return phy, None
+                    except Exception:
+                        pass
+                # ns-3.47 + cppyy：GetInterfaces 可能返回不可遍历对象，回退到节点设备列表
+        except Exception:
+            pass
+
+        # 方法4: 直接遍历节点上所有 NetDevice，寻找 WifiNetDevice
+        # MeshHelper::Install 会在节点上同时添加 MeshPointDevice 和 WifiNetDevice
+        try:
+            if self._nodes_container is not None:
+                node = self._nodes_container.Get(node_id)
+                n_devs = node.GetNDevices()
+                for i in range(n_devs):
+                    dev = node.GetDevice(i)
+                    try:
+                        wifi_dev = dev.GetObject[ns.wifi.WifiNetDevice]()
                         if wifi_dev is not None:
                             phy = wifi_dev.GetPhy()
                             if phy is not None:
                                 return phy, None
-                return None, "MeshPointDevice has no WifiNetDevice interfaces"
+                    except Exception:
+                        pass
         except Exception:
             pass
 

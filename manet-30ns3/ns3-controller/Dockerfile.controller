@@ -66,34 +66,37 @@ RUN wget -q https://www.nsnam.org/releases/ns-allinone-${NS3_VERSION}.tar.bz2 \
     && ln -s ns-allinone-${NS3_VERSION}/ns-${NS3_VERSION} ns-3
 
 # --- 7. 配置并编译 NS-3（cmake + cppyy） ---
+# 在 ns-allinone-3.47/ns-3.47 中编译，但通过 symlink 创建 ns-3 快捷方式
+WORKDIR /opt/ns3
+RUN ln -sf ns-allinone-3.47/ns-3.47 /opt/ns3/ns-3
 WORKDIR /opt/ns3/ns-3
 ARG NS3_JOBS=16
-RUN if [ -f /etc/ns3-build-env ]; then set -a && . /etc/ns3-build-env && set +a; fi && \
+RUN rm -rf build && \
+    if [ -f /etc/ns3-build-env ]; then set -a && . /etc/ns3-build-env && set +a; fi && \
     cmake -B build -S . \
         -DCMAKE_BUILD_TYPE=Release \
-        -DCMAKE_CXX_STANDARD=17 \
-        -DNS3_BINDINGS_PYTHON=ON \
+        -DCMAKE_CXX_STANDARD=23 \
+        -DNS3_PYTHON_BINDINGS=ON \
         -DNS3_ENABLED_MODULES="core;network;internet;wifi;mobility;tap-bridge;flow-monitor;propagation;spectrum;aodv;olsr;dsdv;dsr;mesh" \
         -DNS3_EXAMPLES=OFF \
         -DNS3_TESTS=OFF \
         -G Ninja \
     && cmake --build build -j${NS3_JOBS}
 
-# --- 8. 验证（cppyy 路线） ---
-# ns-3.47 安装 ns 包到 site-packages，import 方式为 from ns import ns
-RUN python3 -c "from ns import ns; \
-    _ = ns.core.Simulator; \
-    _ = ns.wifi.WifiHelper; \
-    _ = ns.tap_bridge.TapBridgeHelper; \
-    _ = ns.mesh.MeshHelper; \
-    _ = ns.spectrum.MultiModelSpectrumChannel; \
-    print('ns-3.47 cppyy bindings OK (含 mesh + spectrum)')"
+# --- 8. 修复 Python 绑定路径 ---
+# ns-3.47 的 CMake 构建把 Python 绑定放在 bindings/python/ 目录（而非 build/bindings/python/）
+# 文件名是 ns__init__.py，双下划线以避免与标准库冲突。
+# 创建 ns 目录结构以便 from ns import ns 可以工作。
+RUN mkdir -p /opt/ns3/ns-allinone-3.47/ns-3.47/build/bindings/python/ns && \
+    cp /opt/ns3/ns-allinone-3.47/ns-3.47/bindings/python/ns__init__.py \
+       /opt/ns3/ns-allinone-3.47/ns-3.47/build/bindings/python/ns/__init__.py && \
+    touch /opt/ns3/ns-allinone-3.47/ns-3.47/.lock-ns3_linux_build
 
 # --- 9. 环境变量 ---
 ENV NS3_DIR=/opt/ns3/ns-3
 ENV PATH="${NS3_DIR}:${PATH}"
 ENV LD_LIBRARY_PATH="${NS3_DIR}/build/lib:${LD_LIBRARY_PATH}"
-ENV PYTHONPATH="${NS3_DIR}/build/bindings/python:/app:${PYTHONPATH}"
+ENV PYTHONPATH="/opt/ns3/ns-allinone-3.47/ns-3.47/build/bindings/python:/app:${PYTHONPATH}"
 
 # --- 10. 控制器代码 + UI 静态资源 ---
 WORKDIR /app

@@ -14,12 +14,11 @@ import re
 from pathlib import Path
 from typing import Any, Literal, Mapping
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from pydantic.alias_generators import to_camel
 
 # ----- supported enums (mirror manet-30ns3/web-manager/src/types/config.ts) ----------------------
 Standard = Literal[
-    "80211b", "80211a", "80211g",
     "80211n-2.4GHz", "80211n-5GHz",
     "80211ac", "80211ax-2.4GHz", "80211ax-5GHz",
 ]
@@ -60,7 +59,7 @@ class SimConfig(_CamelModel):
     # ========================================================================
 
     # --- General [全局] ---
-    n_nodes: int = 6
+    n_nodes: int = Field(default=5, ge=2, le=16)
     simulation_time: float = 300
     seed: int = 1
     run: int = 1
@@ -68,14 +67,14 @@ class SimConfig(_CamelModel):
 
     # --- PHY model & channel [全局] ---
     # phy_model="spectrum" 启用 SpectrumWifiPhy + MultiModelSpectrumChannel；
-    # 默认使用 2.4 GHz WiFi 频段（802.11g Channel 1, 2412 MHz），确保 ns-3 PHY/MAC
+    # 默认使用 2.4 GHz WiFi 频段（802.11n Channel 1, 2412 MHz），确保 ns-3 PHY/MAC
     # 工作在标准 WiFi 模式，避免非合法频段导致速率回退到 1 Mbps。
     # 传播损耗按 frequency_mhz 计算，4 km LOS 预算与 2.4 GHz 物理一致。
-    standard: Standard = "80211g"
+    standard: Standard = "80211n-2.4GHz"
     phy_model: PhyModel = "yans"
     frequency_mhz: int = 2412
     channel_width_mhz: int = 20
-    data_rate: str = "ErpOfdmRate24Mbps"
+    data_rate: str = "HtMcs7"
 
     # --- PHY device [节点] — 支持运行时单节点调整 ---
     tx_power_start: float = 30.0
@@ -108,7 +107,7 @@ class SimConfig(_CamelModel):
     # 多跳转发由 ns-3 mesh 模块在底层完成，容器侧无需额外路由配置。
     ssid: str = "adhoc-30ns3"
     bssid: str = "00:00:00:00:AD:H0"
-    mac_mode: MacMode = "adhoc"
+    mac_mode: MacMode = "mesh"
     rate_control: RateControl = "Constant"
 
     # --- MAC device [预留] — 当前代码未接入 ns-3，预留字段 ---
@@ -213,19 +212,25 @@ def _preset(**overrides: Any) -> SimConfig:
 
 
 PRESETS: dict[str, SimConfig] = {
-    # 默认预设 = 用户目标场景：YansWifiPhy + Adhoc / Mesh，
-    # 2.4 GHz WiFi 频段（802.11g Channel 1, 2412 MHz），4 km 视距，5 km × 5 km 活动区。
-    # 保留衰落模型和随机移动，兼顾真实感与性能。
+    # 默认预设 = 用户目标场景：YansWifiPhy + 802.11s Mesh，
+    # 2.4 GHz WiFi 频段（802.11n Channel 1, 2412 MHz），5 km × 5 km 活动区。
+    # 使用 HtMcs7 确保在 5 km 范围内可靠通信（自由空间 2.4 GHz
+    # HT-MCS7 灵敏度约 -91 dBm，配合 33 dBm Tx / -95 dBm RxSens 可覆盖 >30 km）。
+    # NS-3.47 + cppyy 下 adhoc 模式会触发 Txop segfault，因此强制使用 mesh。
     "default": _preset(
         phyModel="yans",
-        standard="80211g",
+        standard="80211n-2.4GHz",
         frequencyMhz=2412,
-        dataRate="ErpOfdmRate24Mbps",
+        dataRate="HtMcs7",
+        txPowerStart=33.0,
+        txPowerEnd=33.0,
+        rxSensitivity=-95.0,
+        ccaThreshold=-85.0,
     ),
 
     # 城区——视距受阻、路径衰减更陡、节点密集，频段维持 UHF。
     "urban": _preset(
-        nNodes=30, macMode="mesh",
+        nNodes=16, macMode="mesh",
         ssid="adhoc-urban",
         phyModel="yans",
         txPowerStart=27.0, txPowerEnd=27.0,
@@ -244,7 +249,7 @@ PRESETS: dict[str, SimConfig] = {
 
     # 旷野——开阔视距、路径衰减接近自由空间、活动区更大。
     "rural": _preset(
-        nNodes=30, macMode="mesh",
+        nNodes=16, macMode="mesh",
         ssid="adhoc-rural",
         txPowerStart=33.0, txPowerEnd=33.0,
         rxSensitivity=-95.0, ccaThreshold=-85.0,
@@ -258,11 +263,11 @@ PRESETS: dict[str, SimConfig] = {
         pcapPrefix="manet-rural",
     ),
 
-    # 冒烟测试——5 节点 / 短时长 / 小活动区 / 关闭衰落 / 关闭 mesh 退回 ad-hoc。
+    # 冒烟测试——5 节点 / 短时长 / 小活动区 / 关闭衰落 / mesh 模式。
     "debug": _preset(
         nNodes=5, simulationTime=60,
-        ssid="adhoc-debug",
-        macMode="adhoc",
+        ssid="mesh-debug",
+        macMode="mesh",
         routingProtocol="none",
         phyModel="yans",
         standard="80211n-2.4GHz",
@@ -283,8 +288,8 @@ PRESETS: dict[str, SimConfig] = {
     # 极限吞吐测试——2 节点点对点 / 全部开销最小化 / 测纯 PHY 层上限。
     "throughput": _preset(
         nNodes=2, simulationTime=60,
-        ssid="adhoc-throughput",
-        macMode="adhoc",
+        ssid="mesh-throughput",
+        macMode="mesh",
         routingProtocol="none",
         phyModel="yans",
         standard="80211n-2.4GHz",
@@ -312,16 +317,16 @@ PRESETS: dict[str, SimConfig] = {
         pcapPrefix="throughput-test",
     ),
 
-    # 战术场景——10 节点 / UHF 590 MHz / 20 MHz 信道 / 6 Mbps / 4 km 视距。
+    # 战术场景——10 节点 / UHF 590 MHz / 20 MHz 信道 / HT-MCS7 / 4 km 视距。
     # 适用于需要 4–8 Mbps 带宽、3–4 km 通视距离的典型战术通信场景。
     "tactical": _preset(
         nNodes=10, simulationTime=300,
         ssid="adhoc-tactical",
-        standard="80211a",
+        standard="80211n-5GHz",
         phyModel="yans",
         frequencyMhz=590,
         channelWidthMhz=20,
-        dataRate="OfdmRate6Mbps",
+        dataRate="HtMcs7",
         txPowerStart=30.0, txPowerEnd=30.0,
         txPowerLevels=1,
         rxSensitivity=-92.0,
@@ -348,11 +353,11 @@ PRESETS: dict[str, SimConfig] = {
     "wifi-band-test-2.4g": _preset(
         nNodes=5, simulationTime=120,
         ssid="wifi-test-2.4g",
-        standard="80211g",
+        standard="80211n-2.4GHz",
         phyModel="yans",
         frequencyMhz=2412,
         channelWidthMhz=20,
-        dataRate="ErpOfdmRate24Mbps",
+        dataRate="HtMcs7",
         macMode="adhoc",
         routingProtocol="aodv",
         txPowerStart=20.0, txPowerEnd=20.0,
@@ -374,11 +379,11 @@ PRESETS: dict[str, SimConfig] = {
     "wifi-band-test-5g": _preset(
         nNodes=5, simulationTime=120,
         ssid="wifi-test-5g",
-        standard="80211a",
+        standard="80211n-5GHz",
         phyModel="yans",
         frequencyMhz=5180,
         channelWidthMhz=20,
-        dataRate="OfdmRate24Mbps",
+        dataRate="HtMcs7",
         macMode="adhoc",
         routingProtocol="aodv",
         txPowerStart=20.0, txPowerEnd=20.0,
@@ -450,11 +455,11 @@ PRESETS: dict[str, SimConfig] = {
     "wifi-distance-test": _preset(
         nNodes=5, simulationTime=180,
         ssid="wifi-test-distance",
-        standard="80211g",
+        standard="80211n-2.4GHz",
         phyModel="yans",
         frequencyMhz=2412,
         channelWidthMhz=20,
-        dataRate="ErpOfdmRate24Mbps",
+        dataRate="HtMcs7",
         macMode="adhoc",
         routingProtocol="aodv",
         txPowerStart=20.0, txPowerEnd=20.0,
@@ -477,11 +482,11 @@ PRESETS: dict[str, SimConfig] = {
     "wifi-adhoc-multihop": _preset(
         nNodes=10, simulationTime=180,
         ssid="wifi-test-multihop",
-        standard="80211g",
+        standard="80211n-2.4GHz",
         phyModel="yans",
         frequencyMhz=2412,
         channelWidthMhz=20,
-        dataRate="ErpOfdmRate24Mbps",
+        dataRate="HtMcs7",
         macMode="adhoc",
         routingProtocol="aodv",
         txPowerStart=25.0, txPowerEnd=25.0,

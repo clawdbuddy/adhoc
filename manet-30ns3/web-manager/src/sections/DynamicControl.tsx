@@ -28,31 +28,22 @@ export function DynamicControl({ status, nodes, config, env }: DynamicControlPro
   // 所有动态参数的权威来源是后端遥测 env（通过 WebSocket）。
   // config 仅作为组件首次挂载、env 尚未到达时的临时 fallback，
   // 一旦 env 到达，立即切换到真实运行值。
-  const [txPower, setTxPower] = useState([env?.txPower[selectedNode] ?? config.txPowerStart]);
-  const [rxSens, setRxSens] = useState([env?.rxSensitivity[selectedNode] ?? config.rxSensitivity]);
+  const [txPower, setTxPower] = useState([env?.txPower?.[selectedNode] ?? config.txPowerStart]);
+  const [rxSens, setRxSens] = useState([env?.rxSensitivity?.[selectedNode] ?? config.rxSensitivity]);
   const [pathLossExp, setPathLossExp] = useState([env?.pathLossExponent ?? config.pathLossExponent]);
   const [frequency, setFrequency] = useState([env?.frequencyMhz ?? config.frequencyMhz]);
   const [channelWidth, setChannelWidth] = useState([env?.channelWidthMhz ?? config.channelWidthMhz]);
   const [rangeTarget, setRangeTarget] = useState([env?.rangeTargetM ?? config.rangeTargetM]);
 
-  // 当切换节点时，从后端遥测 nodes/env 同步当前位置到输入框
+  // 当切换节点或节点列表变化时，同步当前位置到输入框（节点位置可能通过 TopologyView 拖拽改变）
   useEffect(() => {
     const node = nodes.find(n => n.id === selectedNode);
     if (node) {
       setPosX(node.x.toFixed(1));
       setPosY(node.y.toFixed(1));
     }
-    // 同时同步 per-node 参数
-    if (env) {
-      if (env.txPower[selectedNode] !== undefined) {
-        setTxPower([env.txPower[selectedNode]]);
-      }
-      if (env.rxSensitivity[selectedNode] !== undefined) {
-        setRxSens([env.rxSensitivity[selectedNode]]);
-      }
-    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedNode, env]);
+  }, [selectedNode, nodes]);
 
   // 当遥测帧中的动态参数变化时（如通过其他客户端或 API 修改），同步滑块值与位置输入框。
   // 首次收到 env（prevEnv 为 null）时总是同步；后续仅在非交互状态下同步，防止拖拽被重置。
@@ -64,19 +55,28 @@ export function DynamicControl({ status, nodes, config, env }: DynamicControlPro
 
     if (!isFirstEnv && isDirty()) return; // 用户正在交互，暂停同步防止值被重置
 
-    setPathLossExp([env.pathLossExponent]);
-    setFrequency([env.frequencyMhz]);
-    setChannelWidth([env.channelWidthMhz]);
-    setRangeTarget([env.rangeTargetM]);
+    // 首次 env 到达时同步所有值；后续 env 更新只同步全局参数和位置，
+    // per-node 的 txPower/rxSens 不再自动覆盖（避免用户拖动后被遥测帧弹回）
+    if (isFirstEnv) {
+      setPathLossExp([env.pathLossExponent]);
+      setFrequency([env.frequencyMhz]);
+      setChannelWidth([env.channelWidthMhz]);
+      setRangeTarget([env.rangeTargetM]);
+      if (env.txPower[selectedNode] !== undefined) {
+        setTxPower([env.txPower[selectedNode]]);
+      }
+      if (env.rxSensitivity[selectedNode] !== undefined) {
+        setRxSens([env.rxSensitivity[selectedNode]]);
+      }
+    } else {
+      setPathLossExp([env.pathLossExponent]);
+      setFrequency([env.frequencyMhz]);
+      setChannelWidth([env.channelWidthMhz]);
+      setRangeTarget([env.rangeTargetM]);
+    }
     if (env.positions?.[selectedNode]) {
       setPosX(env.positions[selectedNode].x.toFixed(1));
       setPosY(env.positions[selectedNode].y.toFixed(1));
-    }
-    if (env.txPower[selectedNode] !== undefined) {
-      setTxPower([env.txPower[selectedNode]]);
-    }
-    if (env.rxSensitivity[selectedNode] !== undefined) {
-      setRxSens([env.rxSensitivity[selectedNode]]);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [env, selectedNode]);
@@ -85,9 +85,19 @@ export function DynamicControl({ status, nodes, config, env }: DynamicControlPro
 
   // 脏标志：用户手动修改 Slider/输入框后 3 秒内，暂停从 WebSocket env 同步，
   // 防止遥测帧把正在拖拽的值重置回去。
-  const [dirtyUntil, setDirtyUntil] = useState(0);
-  const isDirty = () => Date.now() < dirtyUntil;
-  const markDirty = () => setDirtyUntil(Date.now() + 3000);
+  // 用 useRef 替代 useState，确保 markDirty 后 isDirty 立即生效（useState 有批处理延迟）。
+  const dirtyRef = useRef(false);
+  const dirtyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const isDirty = () => dirtyRef.current;
+  const markDirty = () => {
+    dirtyRef.current = true;
+    if (dirtyTimerRef.current) {
+      clearTimeout(dirtyTimerRef.current);
+    }
+    dirtyTimerRef.current = setTimeout(() => {
+      dirtyRef.current = false;
+    }, 3000);
+  };
 
   const running = status.running;
 
@@ -301,6 +311,12 @@ export function DynamicControl({ status, nodes, config, env }: DynamicControlPro
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
+            {env?.pathLossModel && env.pathLossModel !== 'LogDistance' && (
+              <div className="text-xs text-amber-600 bg-amber-50 border border-amber-200 rounded px-2 py-1.5 flex items-center gap-1.5">
+                <AlertCircle className="h-3 w-3" />
+                当前模型为 {env.pathLossModel}，仅 LogDistance 支持路径损耗指数调整
+              </div>
+            )}
             <div className="flex items-center justify-between">
               <span className="text-xs text-muted-foreground">1.0 (自由空间)</span>
               <Badge variant="outline" className="font-mono">{pathLossExp[0].toFixed(1)}</Badge>
@@ -312,12 +328,12 @@ export function DynamicControl({ status, nodes, config, env }: DynamicControlPro
               min={1.0}
               max={6.0}
               step={0.1}
-              disabled={!running}
+              disabled={!running || (env?.pathLossModel ? env.pathLossModel !== 'LogDistance' : false)}
             />
             <Button
               size="sm"
               className="w-full"
-              disabled={!running}
+              disabled={!running || (env?.pathLossModel ? env.pathLossModel !== 'LogDistance' : false)}
               onClick={() => doAction(
                 () => ctrl.setPathLossExponent(pathLossExp[0]),
                 '路径损耗指数设置'

@@ -7,8 +7,8 @@ const API_BASE = '';
 // 权威预设定义在后端 controller/orchestrator/config.py:PRESETS 中。
 const FALLBACK_CONFIG: SimConfig = {
   nNodes: 6, simulationTime: 300, seed: 1, run: 1, logComponents: '',
-  standard: '80211g', phyModel: 'yans', frequencyMhz: 2412, channelWidthMhz: 20, rangeTargetM: 4000,
-  dataRate: 'OfdmRate6Mbps',
+  standard: '80211n-2.4GHz', phyModel: 'yans', frequencyMhz: 2412, channelWidthMhz: 20, rangeTargetM: 4000,
+  dataRate: 'HtMcs7',
   txPowerStart: 30, txPowerEnd: 30, txPowerLevels: 1,
   rxSensitivity: -92, ccaThreshold: -82, antennaGain: 3,
   propagationDelay: 'ConstantSpeed', pathLossModel: 'FreeSpace',

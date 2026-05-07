@@ -129,6 +129,7 @@ async def get_current_env() -> dict[str, Any]:
             "frequencyMhz": env.frequency_mhz,
             "channelWidthMhz": env.channel_width_mhz,
             "rangeTargetM": env.range_target_m,
+            "pathLossModel": env.path_loss_model,
         },
     }
 

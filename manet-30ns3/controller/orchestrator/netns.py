@@ -118,6 +118,17 @@ def create_veth(host_name: str, peer_name: str, node_id: int) -> None:
         ipr.link("set", index=host_idx, state="up")
 
 
+def mesh_mac(node_id: int) -> str:
+    """Return the deterministic MAC address used by ns-3 MeshPointDevice.
+
+    ns-3 allocates MACs sequentially starting from 00:00:00:00:00:01.
+    The container's eth0 must use the same MAC so the 802.11s mesh
+    layer treats the container as a mesh peer rather than a bridged
+    client (which would break unicast forwarding).
+    """
+    return f"00:00:00:00:00:{node_id + 1:02x}"
+
+
 def move_to_netns(
     peer_name: str,
     pid: int,
@@ -125,9 +136,10 @@ def move_to_netns(
     rename_to: str = "eth0",
     ip: str | None = None,
     prefixlen: int = 24,
+    mac: str | None = None,
 ) -> None:
     """Move `peer_name` (host-side) into the netns identified by `pid`,
-    rename it to `rename_to`, optionally assign IP, and bring it up."""
+    rename it to `rename_to`, optionally set MAC / assign IP, and bring it up."""
     netns_path = f"/proc/{pid}/ns/net"
     if not os.path.exists(netns_path):
         raise RuntimeError(f"container pid {pid} has no /proc/<pid>/ns/net (already exited?)")
@@ -162,6 +174,8 @@ def move_to_netns(
             raise RuntimeError(f"{peer_name} did not appear inside container netns")
         peer_idx = peer_idx[0]
         ns.link("set", index=peer_idx, ifname=rename_to)
+        if mac:
+            ns.link("set", index=peer_idx, address=mac)
         if ip:
             # Flush any prior addresses on the iface, then assign.
             for addr in ns.get_addr(index=peer_idx, family=2):

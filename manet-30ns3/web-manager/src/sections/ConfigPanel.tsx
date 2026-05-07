@@ -128,7 +128,7 @@ export function ConfigPanel({
             <CardContent className="grid grid-cols-2 md:grid-cols-4 gap-4">
               <div className="space-y-2">
                 <Label>节点数量</Label>
-                <Input type="number" min={2} max={100} value={config.nNodes}
+                <Input type="number" min={2} max={16} value={config.nNodes}
                   onChange={e => updateConfig('nNodes', Number(e.target.value))} />
               </div>
               <div className="space-y-2">

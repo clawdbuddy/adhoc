@@ -48,10 +48,14 @@ function StatusBadge({ status }: { status: string }) {
 
 function computeGeom(canvas: HTMLCanvasElement, nodes: NodeStatus[]): Geom {
   const rect = canvas.getBoundingClientRect();
-  const maxX = Math.max(...nodes.map(n => n.x), 500);
-  const maxY = Math.max(...nodes.map(n => n.y), 500);
-  const scaleX = (rect.width - PADDING * 2) / (maxX + PADDING);
-  const scaleY = (rect.height - PADDING * 2) / (maxY + PADDING);
+  const maxNodeX = nodes.length > 0 ? Math.max(...nodes.map(n => n.x)) : 0;
+  const maxNodeY = nodes.length > 0 ? Math.max(...nodes.map(n => n.y)) : 0;
+  const maxX = Math.max(2000, maxNodeX);
+  const maxY = Math.max(2000, maxNodeY);
+  const usableW = rect.width - PADDING * 2;
+  const usableH = rect.height - PADDING * 2;
+  const scaleX = usableW / (maxX + PADDING);
+  const scaleY = usableH / (maxY + PADDING);
   const scale = Math.min(scaleX, scaleY);
   return { w: rect.width, h: rect.height, padding: PADDING, scale };
 }
@@ -100,6 +104,8 @@ function drawScene(
 ) {
   const ctx = canvas.getContext('2d');
   if (!ctx) return;
+
+  const view = applyDragOverride(nodes, drag);
   const g = computeGeom(canvas, nodes);
   const dpr = window.devicePixelRatio || 1;
   const targetW = Math.round(g.w * dpr);
@@ -109,17 +115,51 @@ function drawScene(
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.clearRect(0, 0, g.w, g.h);
 
-  const view = applyDragOverride(nodes, drag);
-
-  // Grid
+  // Grid + axis labels
   ctx.strokeStyle = '#e5e7eb';
   ctx.lineWidth = 1;
-  for (let x = g.padding; x < g.w; x += 50) {
-    ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, g.h); ctx.stroke();
+  const gridStepPx = 50;
+  ctx.fillStyle = '#9ca3af';
+  ctx.font = '9px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'top';
+  for (let cx = g.padding; cx < g.w; cx += gridStepPx) {
+    ctx.beginPath(); ctx.moveTo(cx, 0); ctx.lineTo(cx, g.h); ctx.stroke();
+    const simX = Math.round((cx - g.padding) / g.scale);
+    if (simX >= 0) ctx.fillText(`${simX}m`, cx, g.h - 14);
   }
-  for (let y = g.padding; y < g.h; y += 50) {
-    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(g.w, y); ctx.stroke();
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'middle';
+  for (let cy = g.padding; cy < g.h; cy += gridStepPx) {
+    ctx.beginPath(); ctx.moveTo(0, cy); ctx.lineTo(g.w, cy); ctx.stroke();
+    const simY = Math.round((cy - g.padding) / g.scale);
+    if (simY >= 0) ctx.fillText(`${simY}m`, 4, cy);
   }
+
+  // Scale bar (bottom-right)
+  const scaleBarMeters = Math.pow(10, Math.floor(Math.log10(100 / g.scale)));
+  const scaleBarPx = scaleBarMeters * g.scale;
+  const sbX = g.w - scaleBarPx - 12;
+  const sbY = g.h - 28;
+  ctx.strokeStyle = '#374151';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(sbX, sbY);
+  ctx.lineTo(sbX + scaleBarPx, sbY);
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(sbX, sbY - 4);
+  ctx.lineTo(sbX, sbY + 4);
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(sbX + scaleBarPx, sbY - 4);
+  ctx.lineTo(sbX + scaleBarPx, sbY + 4);
+  ctx.stroke();
+  ctx.fillStyle = '#374151';
+  ctx.font = '10px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'bottom';
+  ctx.fillText(`${scaleBarMeters}m`, sbX + scaleBarPx / 2, sbY - 4);
 
   // Neighbor links
   ctx.strokeStyle = '#bfdbfe';
@@ -299,7 +339,7 @@ export function TopologyView({ nodes, flows, running, compact }: TopologyViewPro
     if (!canvas || !running) return;
     const [cx, cy] = eventCoords(e);
     const viewNodes = applyDragOverride(nodes, drag);
-    const g = computeGeom(canvas, viewNodes);
+    const g = computeGeom(canvas, nodes);
     const hit = findNodeAt(viewNodes, g, cx, cy);
     if (!hit) return;
     setDrag({ nodeId: hit.id, simX: hit.x, simY: hit.y, moved: false });
@@ -310,7 +350,7 @@ export function TopologyView({ nodes, flows, running, compact }: TopologyViewPro
     if (!canvas) return;
     const [cx, cy] = eventCoords(e);
     const viewNodes = applyDragOverride(nodes, drag);
-    const g = computeGeom(canvas, viewNodes);
+    const g = computeGeom(canvas, nodes);
     if (drag) {
       const [sx, sy] = canvasToSim(g, cx, cy);
       setDrag({ ...drag, simX: sx, simY: sy, moved: true });

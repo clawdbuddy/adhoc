@@ -1,0 +1,22 @@
+{
+  "record_id_list": [
+    "recviKRpwgrBgm",
+    "recviKRpwgJBy2",
+    "recviKRpwgd49W",
+    "recviKRpwgkMqE",
+    "recviKRpwgPLqD",
+    "recviKUr0VHUsD",
+    "recviKUr0VJX1O"
+  ],
+  "patch": {
+    "当前状态": "修复中"
+  }
+}
+{
+  "timestamp": "2026-05-07",
+  "分类": "产品缺陷",
+  "描述": "修复 TopologyView.tsx 节点拖拽到右侧时的抖动/不稳定问题。根因：computeGeom 在 drawScene/onMouseDown/onMouseMove 中传入了 drag-override 后的 view 节点，导致拖拽过程中 viewport/scale 随被拖节点位置变化而不断变化。修复：computeGeom 统一使用原始 nodes 计算几何（scale 稳定），findNodeAt 仍使用 viewNodes 做点击检测；最小 viewport 从 600m 扩大到 2000m，给拖拽留出充足空间。",
+  "优先级": "高",
+  "状态": "已解决",
+  "负责人": "Claude"
+}
