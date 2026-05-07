@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import type { NodeStatus, FlowStats, NodePairFlow, SimulationStatus, SimConfig, TelemetryEnv } from '@/types/config';
 
 // API + WS 基础 URL。生产环境中 FastAPI 控制器与前端页面同源提供；
-// 开发模式下（vite 在 :3000）vite.config.ts 中的代理将 /api 和 /ws 转发到 localhost:7000。
+// 开发模式下（vite 在 :3000）vite.config.ts 中的代理将 /api 和 /ws 转发到 localhost:8000。
 const API_BASE = '';
 
 function wsUrl(path: string): string {

@@ -231,17 +231,17 @@ docker compose build ns3-controller
 
 ```bash
 # 修改节点 0 的发射功率
-curl -X POST localhost:7000/api/env/txpower \
+curl -X POST localhost:8000/api/env/txpower \
   -H 'content-type: application/json' \
   -d '{"nodeId":0,"dbm":25.0}'
 
 # 修改节点 0 的位置
-curl -X POST localhost:7000/api/env/position \
+curl -X POST localhost:8000/api/env/position \
   -H 'content-type: application/json' \
   -d '{"nodeId":0,"x":100.0,"y":200.0}'
 
 # 修改全局通信距离
-curl -X POST localhost:7000/api/env/range \
+curl -X POST localhost:8000/api/env/range \
   -H 'content-type: application/json' \
   -d '{"meters":2000.0}'
 ```

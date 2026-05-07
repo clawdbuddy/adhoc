@@ -14,8 +14,8 @@ version: '3.8'
 # Bring up:
 #   docker compose build node-image-builder ns3-controller
 #   docker compose up -d ns3-controller
-#   curl localhost:7000/api/health
-#   curl -XPOST localhost:7000/api/sim/start \
+#   curl localhost:8000/api/health
+#   curl -XPOST localhost:8000/api/sim/start \
 #        -H 'content-type: application/json' \
 #        -d '{"preset":"debug"}'
 # ---------------------------------------------------------------------------
@@ -46,17 +46,6 @@ services:
       - ./results:/results
       # Persist user simulation configuration across container restarts
       - ./config:/app/config
-    restart: unless-stopped
-
-      - MANET_WEB_DIR=/app/dist
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
-      - /var/run/netns:/var/run/netns
-      - ./results:/results
-      - ./config:/app/config
-    # 8000 已被 ns3-controller 占用；这里换 8001 以便并行起服。
-    command: ["uvicorn", "controller.api.main:app",
-              "--host", "0.0.0.0", "--port", "8001"]
     restart: unless-stopped
 
   # Build-only target. The controller spawns these containers at runtime via

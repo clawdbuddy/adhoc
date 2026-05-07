@@ -1,7 +1,7 @@
 """FastAPI 应用入口。
 
 启动方式：
-    uvicorn controller.api.main:app --host 0.0.0.0 --port 7000
+    uvicorn controller.api.main:app --host 0.0.0.0 --port 8000
 
 在控制器容器内由 /entrypoint.sh 启动。
 PYTHONPATH 须包含 ns-3 Python 绑定目录（Docker：/opt/ns3/ns-3/build/bindings/python）。

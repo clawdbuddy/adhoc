@@ -42,7 +42,7 @@ def main() -> None:
     uvicorn.run(
         'controller.api.main:app',
         host='0.0.0.0',
-        port=7000,
+        port=8000,
         reload=False,
     )
 
