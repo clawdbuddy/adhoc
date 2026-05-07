@@ -158,7 +158,7 @@ class SimRunner:
         self._propagation_loss_model: Any = None
         self._range_model: Any = None
         self._phy_model_type: str = ""
-        # 实际使用的 MAC 模式;若 mesh 初始化失败降级为 adhoc,这里记录实际生效值
+        # 实际使用的 MAC 模式;当前版本强制 mesh，此处记录实际生效值
         self._mac_mode_actual: str = ""
         # 运行时增删节点所需 helper（仅在 _build_and_run 完成后有效）
         self._phy_helper: Any = None
@@ -234,7 +234,7 @@ class SimRunner:
 
     @property
     def mac_mode_actual(self) -> str:
-        """实际生效的 MAC 模式;若 cfg.mac_mode='mesh' 但绑定缺失,返回 'adhoc-fallback'。"""
+        """实际生效的 MAC 模式;当前版本强制 mesh。"""
         return self._mac_mode_actual
 
     # ------------------------------------------------- public snapshots
@@ -703,16 +703,10 @@ class SimRunner:
         try:
             _ = mesh_helper.Install
         except AttributeError:
-            log.warning(
-                "MeshHelper.Install 不可用,降级为 adhoc"
-            )
-            self._mac_mode_actual = "adhoc-fallback"
-            mac = ns.wifi.WifiMacHelper()
-            mac.SetType(
-                "ns3::AdhocWifiMac",
-                "Ssid", ns.wifi.SsidValue(ns.wifi.Ssid(cfg.ssid)),
-            )
-            return ns.wifi.WifiHelper().Install(phy, mac, nodes)
+            raise RuntimeError(
+                "MeshHelper.Install 不可用;NS-3.47 + cppyy 强制使用 mesh 模式，"
+                "请确认编译时启用了 mesh 模块 (--enable-modules=mesh)"
+            ) from None
 
         mesh_helper.SetStackInstaller("ns3::Dot11sStack")
         # ns-3.47 中 MeshHelper.SetStandard 会导致 PHY channel 配置冲突
@@ -913,7 +907,7 @@ class SimRunner:
         return {"applied": True}
 
     def _get_node_phy(self, node_id: int) -> tuple[Any, str | None]:
-        """获取指定节点的 WifiPhy，处理 adhoc 和 mesh 两种模式。
+        """获取指定节点的 WifiPhy（mesh 模式下的 MeshPointDevice）。
 
         返回 (phy, error_message) 二元组。error_message 为 None 表示成功。
         """
@@ -923,7 +917,7 @@ class SimRunner:
 
         device = self._wifi_devices.Get(node_id)
 
-        # 方法1: 直接尝试 GetPhy (adhoc 模式下 device 可能是 WifiNetDevice)
+        # 方法1: 直接尝试 GetPhy
         try:
             phy = device.GetPhy()
             if phy is not None:

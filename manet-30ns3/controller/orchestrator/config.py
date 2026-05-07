@@ -110,6 +110,14 @@ class SimConfig(_CamelModel):
     mac_mode: MacMode = "mesh"
     rate_control: RateControl = "Constant"
 
+    @field_validator("mac_mode", mode="after")
+    @classmethod
+    def _force_mesh(cls, v: str) -> str:
+        """NS-3.47 + cppyy 下 adhoc 模式会触发 Txop segfault，强制使用 mesh。"""
+        if v != "mesh":
+            return "mesh"
+        return v
+
     # --- MAC device [预留] — 当前代码未接入 ns-3，预留字段 ---
     rts_cts_threshold: int = 2200
     fragmentation_threshold: int = 2200
@@ -358,7 +366,7 @@ PRESETS: dict[str, SimConfig] = {
         frequencyMhz=2412,
         channelWidthMhz=20,
         dataRate="HtMcs7",
-        macMode="adhoc",
+        macMode="mesh",
         routingProtocol="aodv",
         txPowerStart=20.0, txPowerEnd=20.0,
         rxSensitivity=-82.0,
@@ -384,7 +392,7 @@ PRESETS: dict[str, SimConfig] = {
         frequencyMhz=5180,
         channelWidthMhz=20,
         dataRate="HtMcs7",
-        macMode="adhoc",
+        macMode="mesh",
         routingProtocol="aodv",
         txPowerStart=20.0, txPowerEnd=20.0,
         rxSensitivity=-82.0,
@@ -410,7 +418,7 @@ PRESETS: dict[str, SimConfig] = {
         frequencyMhz=2437,
         channelWidthMhz=20,
         dataRate="HtMcs7",
-        macMode="adhoc",
+        macMode="mesh",
         routingProtocol="aodv",
         txPowerStart=20.0, txPowerEnd=20.0,
         rxSensitivity=-82.0,
@@ -435,7 +443,7 @@ PRESETS: dict[str, SimConfig] = {
         frequencyMhz=2437,
         channelWidthMhz=40,
         dataRate="HtMcs7",
-        macMode="adhoc",
+        macMode="mesh",
         routingProtocol="aodv",
         txPowerStart=20.0, txPowerEnd=20.0,
         rxSensitivity=-82.0,
@@ -460,7 +468,7 @@ PRESETS: dict[str, SimConfig] = {
         frequencyMhz=2412,
         channelWidthMhz=20,
         dataRate="HtMcs7",
-        macMode="adhoc",
+        macMode="mesh",
         routingProtocol="aodv",
         txPowerStart=20.0, txPowerEnd=20.0,
         rxSensitivity=-92.0,
@@ -487,7 +495,7 @@ PRESETS: dict[str, SimConfig] = {
         frequencyMhz=2412,
         channelWidthMhz=20,
         dataRate="HtMcs7",
-        macMode="adhoc",
+        macMode="mesh",
         routingProtocol="aodv",
         txPowerStart=25.0, txPowerEnd=25.0,
         rxSensitivity=-92.0,
@@ -627,7 +635,7 @@ FIELD_DESCRIPTIONS: dict[str, str] = {
     # --- MAC network [全局] ---
     "ssid": "[全局] SSID：网络标识符",
     "bssid": "[全局] BSSID：基本服务集标识符（MAC 格式）",
-    "macMode": "[全局] MAC 模式：adhoc（独立基本服务集）或 mesh（802.11s）",
+    "macMode": "[全局] MAC 模式：当前版本强制 mesh（802.11s），adhoc 已禁用",
     "rateControl": "[全局] 速率控制算法：Arf/Aarf/Onoe/Constant/Minstrel",
     # --- MAC device [预留] ---
     "rtsCtsThreshold": "[预留] RTS/CTS 阈值：当前代码未接入 ns-3",

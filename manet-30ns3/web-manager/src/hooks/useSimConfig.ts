@@ -16,7 +16,7 @@ const FALLBACK_CONFIG: SimConfig = {
   enableFading: false, fadingModel: 'Nakagami',
   nakagamiM0: 1.5, nakagamiM1: 1.0, nakagamiM2: 0.75, nakagamiD1: 50, nakagamiD2: 100,
   ssid: 'adhoc-30ns3', bssid: '00:00:00:00:AD:H0',
-  macMode: 'adhoc', rateControl: 'Constant', rtsCtsThreshold: 2200, fragmentationThreshold: 2200,
+  macMode: 'mesh', rateControl: 'Constant', rtsCtsThreshold: 2200, fragmentationThreshold: 2200,
   nonUnicastMode: false, beaconInterval: 100, cwMin: 15, cwMax: 1023,
   routingProtocol: 'aodv', aodvHelloInterval: 1, aodvRreqRetries: 2,
   aodvActiveRouteTimeout: 3, aodvDeletePeriod: 5, aodvNetDiameter: 35, aodvEnableHello: true,
@@ -49,21 +49,28 @@ export function useSimConfig() {
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // 挂载时从后端加载权威预设
+  // 挂载时从后端加载：先读已保存配置，再加载预设作为兜底
   useEffect(() => {
-    fetch(`${API_BASE}/api/sim/presets`)
-      .then(r => r.json())
-      .then((data: Record<string, SimConfig>) => {
-        setPresets(data);
-        const defaultPreset = data.default;
+    Promise.all([
+      fetch(`${API_BASE}/api/config`).then(r => r.ok ? r.json() : null).catch(() => null),
+      fetch(`${API_BASE}/api/sim/presets`).then(r => r.json()).catch(() => ({} as Record<string, SimConfig>)),
+    ]).then(([saved, presetData]) => {
+      setPresets(presetData);
+      if (saved && saved.config) {
+        setConfig(saved.config);
+      } else if (saved && !saved.config) {
+        // 后端直接返回 SimConfig 对象（非嵌套结构）
+        setConfig(saved as SimConfig);
+      } else {
+        const defaultPreset = presetData.default;
         if (defaultPreset) {
           setConfig({ ...defaultPreset });
         }
-        setReady(true);
-      })
-      .catch(() => {
-        setReady(true);
-      });
+      }
+      setReady(true);
+    }).catch(() => {
+      setReady(true);
+    });
   }, []);
 
   const updateConfig = useCallback(<K extends keyof SimConfig>(key: K, value: SimConfig[K]) => {

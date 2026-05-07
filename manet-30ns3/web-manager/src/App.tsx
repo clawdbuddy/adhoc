@@ -8,20 +8,22 @@ import { ConfigPanel } from '@/sections/ConfigPanel';
 import { TopologyView } from '@/sections/TopologyView';
 import { LogView } from '@/sections/LogView';
 import { DynamicControl } from '@/sections/DynamicControl';
+import { ProtoTest } from '@/sections/ProtoTest';
 import {
-  LayoutDashboard, Settings, Network, ScrollText, Zap,
+  LayoutDashboard, Settings, Network, ScrollText, Zap, Radio,
   Play, Square, RotateCw, Wifi, Route,
 } from 'lucide-react';
 import './App.css';
 
 // 构建时间戳：每次修改后更新，确保 Vite 内容哈希变化，避免浏览器缓存旧版本
-const BUILD_TIME = '2026-05-07-1055';
+const BUILD_TIME = '2026-05-07-1334';
 void BUILD_TIME;
 
 const NAV_ITEMS = [
   { key: 'dashboard', label: '仪表板', icon: LayoutDashboard },
   { key: 'config', label: '配置', icon: Settings },
   { key: 'dynamic', label: '动态控制', icon: Zap },
+  { key: 'proto', label: '协议测试', icon: Radio },
   { key: 'logs', label: '日志', icon: ScrollText },
 ] as const;
 
@@ -311,6 +313,12 @@ function App() {
           {activePage === 'dynamic' && (
             <div className="h-full overflow-auto p-3">
               <DynamicControl status={status} nodes={nodes} config={config} env={env} />
+            </div>
+          )}
+
+          {activePage === 'proto' && (
+            <div className="h-full overflow-hidden">
+              <ProtoTest />
             </div>
           )}
 
