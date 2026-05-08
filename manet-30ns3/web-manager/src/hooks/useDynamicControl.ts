@@ -1,7 +1,5 @@
 import { useCallback } from 'react';
 
-const API_BASE = '';
-
 export interface DynamicResult {
   ok: boolean;
   applied: boolean;
@@ -9,47 +7,58 @@ export interface DynamicResult {
   [key: string]: unknown;
 }
 
-async function postJson(path: string, body: Record<string, unknown>): Promise<DynamicResult> {
-  const res = await fetch(`${API_BASE}${path}`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify(body),
-  });
-  const data = await res.json().catch(() => ({ ok: false }));
-  if (!res.ok) {
-    throw new Error(`HTTP ${res.status}: ${data.detail || JSON.stringify(data)}`);
-  }
-  return data as DynamicResult;
+interface SimApi {
+  setParam: (key: string, value: unknown) => Promise<{
+    ok: boolean;
+    key?: string;
+    reason?: string;
+    results?: Array<{ ok: boolean; nodeId?: number; reason?: string }>;
+  }>;
 }
 
-export function useDynamicControl() {
+export function useDynamicControl(sim?: SimApi) {
+  const _setParam = useCallback(async (key: string, value: unknown, desc: string): Promise<DynamicResult> => {
+    if (!sim) {
+      return { ok: false, applied: false, reason: `${desc}: WebSocket not available` };
+    }
+    try {
+      const r = await sim.setParam(key, value);
+      if (r.ok) {
+        return { ok: true, applied: true };
+      }
+      return { ok: false, applied: false, reason: r.reason || `${desc} failed` };
+    } catch (e) {
+      return { ok: false, applied: false, reason: (e as Error).message };
+    }
+  }, [sim]);
+
   const setNodePosition = useCallback(async (nodeId: number, x: number, y: number, z = 0) => {
-    return postJson(`/api/env/position`, { nodeId, x, y, z });
-  }, []);
+    return _setParam('positions', { [nodeId]: { x, y, z } }, `node-${nodeId} position`);
+  }, [_setParam]);
 
   const setTxPower = useCallback(async (nodeId: number, dbm: number) => {
-    return postJson(`/api/env/txpower`, { nodeId, dbm });
-  }, []);
+    return _setParam('txPower', { [nodeId]: dbm }, `node-${nodeId} txpower`);
+  }, [_setParam]);
 
   const setRxSensitivity = useCallback(async (nodeId: number, dbm: number) => {
-    return postJson(`/api/env/rxsens`, { nodeId, dbm });
-  }, []);
+    return _setParam('rxSensitivity', { [nodeId]: dbm }, `node-${nodeId} rxsens`);
+  }, [_setParam]);
 
   const setPathLossExponent = useCallback(async (exponent: number) => {
-    return postJson(`/api/env/pathloss`, { exponent });
-  }, []);
+    return _setParam('pathLossExponent', exponent, 'pathLossExponent');
+  }, [_setParam]);
 
   const setFrequency = useCallback(async (mhz: number) => {
-    return postJson(`/api/env/frequency`, { mhz });
-  }, []);
+    return _setParam('frequencyMhz', mhz, 'frequencyMhz');
+  }, [_setParam]);
 
   const setChannelWidth = useCallback(async (mhz: number) => {
-    return postJson(`/api/env/channelwidth`, { mhz });
-  }, []);
+    return _setParam('channelWidthMhz', mhz, 'channelWidthMhz');
+  }, [_setParam]);
 
   const setRangeTarget = useCallback(async (meters: number) => {
-    return postJson(`/api/env/range`, { meters });
-  }, []);
+    return _setParam('rangeTargetM', meters, 'rangeTargetM');
+  }, [_setParam]);
 
   return {
     setNodePosition,

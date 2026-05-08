@@ -15,16 +15,22 @@ from typing import Optional
 import docker
 from docker.errors import APIError, NotFound
 
+import json
+from pathlib import Path
+
 from controller.orchestrator import SimConfig, NodeSpec, PRESETS
-from controller.orchestrator.config import load_config, load_user_config
+from controller.orchestrator.config import load_config, load_user_config, save_config_to_file
 from controller.orchestrator.docker_mgr import CONTAINER_PREFIX, DockerMgr
 from controller.orchestrator.netns import (
     delete_link,
     node_bridge_name,
     teardown,
 )
+from controller.orchestrator.param_store import ParamStore
 from controller.orchestrator.sim_runner import SimRunner
 from controller.orchestrator.telemetry import Telemetry
+
+SNAPSHOT_PATH: Path = Path("/app/config/sim_snapshot.json")
 
 log = logging.getLogger(__name__)
 
@@ -55,6 +61,7 @@ class Session:
     sim: Optional[SimRunner] = None
     docker_mgr: Optional[DockerMgr] = None
     telemetry: Optional[Telemetry] = None
+    param_store: Optional[ParamStore] = None
     specs: list[NodeSpec] = field(default_factory=list)
     preset: Optional[str] = None
     _lock: threading.Lock = field(default_factory=threading.Lock)
@@ -106,15 +113,31 @@ class Session:
             teardown(cfg.n_nodes)
             raise
 
+        # 3.5 如果存在上次仿真快照，恢复节点位置和动态参数
+        if SNAPSHOT_PATH.exists():
+            try:
+                snapshot = json.loads(SNAPSHOT_PATH.read_text(encoding="utf-8"))
+                positions = snapshot.get("positions", [])
+                for i, pos in enumerate(positions):
+                    if i < cfg.n_nodes and isinstance(pos, dict):
+                        sim.set_node_position(i, pos.get("x", 0.0), pos.get("y", 0.0), pos.get("z", 0.0))
+                log.info("已从快照恢复 %d 个节点位置", len(positions))
+            except Exception as e:  # noqa: BLE001
+                log.warning("恢复快照失败: %s", e)
+
         # 4. 启动遥测泵 (5 Hz: 把端到端反馈从 ~1s 压到 ~200ms)
         tele = Telemetry(sim, docker_mgr, specs)
         await tele.start(period=0.2)
+
+        # 5. 初始化参数存储模块
+        param_store = ParamStore(self)
 
         with self._lock:
             self.config = cfg
             self.docker_mgr = docker_mgr
             self.sim = sim
             self.telemetry = tele
+            self.param_store = param_store
             self.specs = specs
             self.preset = preset
 
@@ -127,7 +150,7 @@ class Session:
         with self._lock:
             sim, docker_mgr, tele, specs = self.sim, self.docker_mgr, self.telemetry, self.specs
             cfg = self.config
-            self.sim = self.docker_mgr = self.telemetry = None
+            self.sim = self.docker_mgr = self.telemetry = self.param_store = None
             self.specs = []
             self.preset = None
 
@@ -155,6 +178,26 @@ class Session:
 
         # 兜底:扫描 docker 中残留的 manet-node-* 容器,以及任何 tap-/veth 接口
         _reap_orphans(cfg.n_nodes)
+
+        # 仿真停止后保存动态参数快照到文件，供下次启动恢复
+        if sim is not None:
+            try:
+                env = sim.snapshot_env()
+                snapshot = {
+                    "positions": env.positions,
+                    "txPower": env.tx_power,
+                    "rxSensitivity": env.rx_sensitivity,
+                    "pathLossExponent": env.path_loss_exponent,
+                    "frequencyMhz": env.frequency_mhz,
+                    "channelWidthMhz": env.channel_width_mhz,
+                    "rangeTargetM": env.range_target_m,
+                    "pathLossModel": env.path_loss_model,
+                }
+                SNAPSHOT_PATH.parent.mkdir(parents=True, exist_ok=True)
+                SNAPSHOT_PATH.write_text(json.dumps(snapshot, indent=2), encoding="utf-8")
+                log.info("仿真快照已保存到 %s", SNAPSHOT_PATH)
+            except Exception as e:  # noqa: BLE001
+                log.warning("保存仿真快照失败: %s", e)
 
     # ---------------------------------------------------------- 访问器
     @property

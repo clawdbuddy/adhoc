@@ -30,12 +30,13 @@ const NAV_ITEMS = [
 type PageKey = typeof NAV_ITEMS[number]['key'];
 
 function App() {
+  const sim = useSimulation();
   const {
     config, activePreset, presets, saveStatus, updateConfig,
     loadPreset, resetToDefault, exportConfig, importConfig,
-  } = useSimConfig();
+  } = useSimConfig(sim);
 
-  const { status, nodes, flows, env, logs, startSimulation, stopSimulation, addLog } = useSimulation(config.nNodes);
+  const { status, nodes, flows, env, logs, startSimulation, stopSimulation, addLog } = sim;
 
   const [activePage, setActivePage] = useState<PageKey>('dashboard');
 
@@ -163,7 +164,7 @@ function App() {
             <Network className="h-4 w-4 text-primary-foreground" />
           </div>
           <div className="overflow-hidden">
-            <h1 className="text-sm font-bold leading-tight truncate">NS-3 MANET</h1>
+            <h1 className="text-sm font-bold leading-tight truncate">MANET</h1>
             <p className="text-[10px] text-muted-foreground truncate">仿真控制面板</p>
           </div>
         </div>
@@ -289,7 +290,7 @@ function App() {
   }}
 />
               <div className="flex-1 min-h-0 overflow-auto">
-                <TopologyView nodes={nodes} flows={flows} running={status.running} compact />
+                <TopologyView nodes={nodes} flows={flows} running={status.running} compact sim={sim} />
               </div>
             </div>
           )}
@@ -312,7 +313,7 @@ function App() {
 
           {activePage === 'dynamic' && (
             <div className="h-full overflow-auto p-3">
-              <DynamicControl status={status} nodes={nodes} config={config} env={env} />
+              <DynamicControl status={status} nodes={nodes} config={config} env={env} sim={sim} />
             </div>
           )}
 

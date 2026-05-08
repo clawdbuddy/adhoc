@@ -1,0 +1,9 @@
+Test Case ID,Category,Priority,Test Name,Estimated Time (min),Prerequisites,Status,Result,Bug ID,Execution Date,Executed By,Notes,Screenshot/Log
+TC-NET-001,Network,P1,2.4GHz 频段连通性,3,控制器运行中,Completed,Pass,,2026-05-08,qa-expert,ping 0% 丢包 RTT 1.28-2.40ms,
+TC-NET-002,Network,P1,5GHz 频段连通性,3,控制器运行中,Completed,Pass,,2026-05-08,qa-expert,ping 0% 丢包 RTT 1.26-1.51ms,
+TC-NET-003,Network,P1,20MHz 带宽吞吐量,4,控制器运行中,Completed,Pass,,2026-05-08,qa-expert,吞吐量 16.88-19.85 Mbps 无重传,
+TC-NET-004,Network,P1,40MHz 带宽吞吐量,4,控制器运行中,Completed,Pass,,2026-05-08,qa-expert,吞吐量 13.60-18.39 Mbps 无重传,
+TC-NET-005,Network,P2,通信距离衰减,5,控制器运行中,Completed,Pass,,2026-05-08,qa-expert,500-2000m 全可达 吞吐量 19.78-19.93 Mbps,
+TC-NET-006,Network,P2,Adhoc 大规模拓扑,6,控制器运行中,Completed,Fail,BUG-001,2026-05-08,qa-expert,node0→node9 ping 100% 丢包但 traceroute 可达 1 跳,
+TC-NET-007,Network,P2,广播覆盖,3,控制器运行中,Completed,Pass,,2026-05-08,qa-expert,广播发送成功 node1-3 有可达邻居,
+TC-NET-008,Network,P2,2.4GHz 多信道遍历,8,控制器运行中,Completed,Pass,,2026-05-08,qa-expert,4 信道全部 0% 丢包,

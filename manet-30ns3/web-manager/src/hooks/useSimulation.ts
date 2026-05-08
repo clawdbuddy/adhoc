@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import type { NodeStatus, FlowStats, NodePairFlow, SimulationStatus, SimConfig, TelemetryEnv } from '@/types/config';
+import type { NodeStatus, FlowStats, NodePairFlow, SimulationStatus, SimConfig, TelemetryEnv, ParamResult, ParamBatchResult, ParamChangeMsg } from '@/types/config';
 
 // API + WS 基础 URL。生产环境中 FastAPI 控制器与前端页面同源提供；
 // 开发模式下（vite 在 :3000）vite.config.ts 中的代理将 /api 和 /ws 转发到 localhost:8000。
@@ -20,7 +20,7 @@ interface TelemetryFrame {
   ts: number;
 }
 
-function aggregateStatus(nNodes: number, frame: TelemetryFrame, prevStartTime: string | null): SimulationStatus {
+function aggregateStatus(frame: TelemetryFrame, prevStartTime: string | null): SimulationStatus {
   const onlineNodes = frame.nodes.filter(n => n.status !== 'offline');
   const totalTx = frame.nodes.reduce((s, n) => s + (n.txPackets || 0), 0);
   const totalRx = frame.nodes.reduce((s, n) => s + (n.rxPackets || 0), 0);
@@ -30,7 +30,7 @@ function aggregateStatus(nNodes: number, frame: TelemetryFrame, prevStartTime: s
     startTime: frame.running ? (prevStartTime ?? new Date().toISOString()) : null,
     elapsed: Math.round(frame.t),
     nodesOnline: onlineNodes.length,
-    totalNodes: nNodes,
+    totalNodes: frame.nodes.length,
     activeFlows: frame.flows.length,
     totalTx,
     totalRx,
@@ -38,13 +38,21 @@ function aggregateStatus(nNodes: number, frame: TelemetryFrame, prevStartTime: s
   };
 }
 
-export function useSimulation(nNodes: number) {
+interface PendingRequest {
+  resolve: (value: ParamResult | ParamBatchResult) => void;
+  reject: (reason: Error) => void;
+  timer: ReturnType<typeof setTimeout>;
+}
+
+type ParamChangeCallback = (msg: ParamChangeMsg) => void;
+
+export function useSimulation(initialNnodes: number = 5) {
   const [status, setStatus] = useState<SimulationStatus>({
     running: false,
     startTime: null,
     elapsed: 0,
     nodesOnline: 0,
-    totalNodes: nNodes,
+    totalNodes: initialNnodes,
     activeFlows: 0,
     totalTx: 0,
     totalRx: 0,
@@ -58,10 +66,52 @@ export function useSimulation(nNodes: number) {
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const connectWsRef = useRef<(() => void) | null>(null);
+  const pendingRef = useRef<Map<string, PendingRequest>>(new Map());
+  const paramCallbacksRef = useRef<Set<ParamChangeCallback>>(new Set());
 
   const addLog = useCallback((msg: string) => {
     setLogs(prev => [msg, ...prev].slice(0, 500));
   }, []);
+
+  // ---- 参数变更监听注册 ----
+  const subscribeParamChange = useCallback((cb: ParamChangeCallback) => {
+    paramCallbacksRef.current.add(cb);
+    return () => { paramCallbacksRef.current.delete(cb); };
+  }, []);
+
+  // ---- WebSocket 发送并等待响应 ----
+  const sendAndWait = useCallback(<T extends ParamResult | ParamBatchResult>(
+    payload: Record<string, unknown>,
+    timeoutMs = 5000,
+  ): Promise<T> => {
+    return new Promise((resolve, reject) => {
+      const ws = wsRef.current;
+      if (!ws || ws.readyState !== WebSocket.OPEN) {
+        reject(new Error('WebSocket not connected'));
+        return;
+      }
+      const reqId = crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`;
+      const msg = { ...payload, reqId };
+      const timer = setTimeout(() => {
+        pendingRef.current.delete(reqId);
+        reject(new Error(`WebSocket request timeout: ${payload.type}`));
+      }, timeoutMs);
+      pendingRef.current.set(reqId, { resolve: resolve as (v: ParamResult | ParamBatchResult) => void, reject, timer });
+      ws.send(JSON.stringify(msg));
+    });
+  }, []);
+
+  const setParam = useCallback((key: string, value: unknown): Promise<ParamResult> => {
+    return sendAndWait<ParamResult>({ type: 'param_set', key, value });
+  }, [sendAndWait]);
+
+  const getParam = useCallback((key: string): Promise<ParamResult> => {
+    return sendAndWait<ParamResult>({ type: 'param_get', key });
+  }, [sendAndWait]);
+
+  const batchSetParams = useCallback((params: Record<string, unknown>): Promise<ParamBatchResult> => {
+    return sendAndWait<ParamBatchResult>({ type: 'param_batch_set', params });
+  }, [sendAndWait]);
 
   // ---- WebSocket subscription, with auto-reconnect ----
   const connectWs = useCallback(() => {
@@ -80,22 +130,53 @@ export function useSimulation(nNodes: number) {
     ws.onerror = () => addLog(`[ws] error`);
     ws.onclose = () => {
       wsRef.current = null;
+      // 清理所有 pending 请求
+      pendingRef.current.forEach(({ reject, timer }) => {
+        clearTimeout(timer);
+        reject(new Error('WebSocket closed'));
+      });
+      pendingRef.current.clear();
       addLog(`[ws] closed; reconnecting in 3s`);
       reconnectTimerRef.current = setTimeout(() => connectWsRef.current?.(), 3000);
     };
     ws.onmessage = (ev: MessageEvent) => {
       try {
-        const frame = JSON.parse(ev.data) as TelemetryFrame;
+        const msg = JSON.parse(ev.data) as Record<string, unknown>;
+        const msgType = msg.type as string | undefined;
+
+        // 1. 参数响应（匹配 pending request）
+        if (msgType === 'param_response' || msgType === 'param_batch_response') {
+          const reqId = msg.reqId as string;
+          const pending = pendingRef.current.get(reqId);
+          if (pending) {
+            clearTimeout(pending.timer);
+            pendingRef.current.delete(reqId);
+            pending.resolve(msg as unknown as ParamResult | ParamBatchResult);
+          }
+          return;
+        }
+
+        // 2. 参数变更广播
+        if (msgType === 'param_changed') {
+          const changeMsg = msg as unknown as ParamChangeMsg;
+          paramCallbacksRef.current.forEach(cb => {
+            try { cb(changeMsg); } catch { /* ignore callback errors */ }
+          });
+          return;
+        }
+
+        // 3. 遥测帧（无 type 字段或 type 为 undefined）
+        const frame = msg as unknown as TelemetryFrame;
         setNodes(frame.nodes ?? []);
         setFlows(frame.flows ?? []);
         setPairs(frame.pairs ?? []);
         setEnv(frame.env ?? null);
-        setStatus(prev => aggregateStatus(nNodes, frame, prev.startTime));
+        setStatus(prev => aggregateStatus(frame, prev.startTime));
       } catch (e) {
         addLog(`[ws] parse failed: ${(e as Error).message}`);
       }
     };
-  }, [addLog, nNodes]);
+  }, [addLog]);
 
   // 保持 ref 同步，避免 onclose 闭包引用 stale 的 connectWs
   useEffect(() => {
@@ -150,5 +231,10 @@ export function useSimulation(nNodes: number) {
     }
   }, [addLog]);
 
-  return { status, nodes, flows, pairs, env, logs, startSimulation, stopSimulation, addLog };
+  return {
+    status, nodes, flows, pairs, env, logs,
+    startSimulation, stopSimulation, addLog,
+    setParam, getParam, batchSetParams,
+    subscribeParamChange,
+  };
 }

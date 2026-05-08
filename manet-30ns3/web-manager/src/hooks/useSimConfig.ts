@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
-import type { SimConfig } from '@/types/config';
+import type { SimConfig, ParamChangeMsg } from '@/types/config';
 
 const API_BASE = '';
 
@@ -41,7 +41,12 @@ export const PRESET_NAMES: Record<string, string> = {
   throughput: '极限吞吐 / 2节点',
 };
 
-export function useSimConfig() {
+interface SimApi {
+  batchSetParams: (params: Record<string, unknown>) => Promise<{ ok: boolean; results: Array<{ ok: boolean; key?: string; reason?: string }> }>;
+  subscribeParamChange: (cb: (msg: ParamChangeMsg) => void) => () => void;
+}
+
+export function useSimConfig(sim?: SimApi) {
   const [presets, setPresets] = useState<Record<string, SimConfig> | null>(null);
   const [ready, setReady] = useState(false);
   const [config, setConfig] = useState<SimConfig>({ ...FALLBACK_CONFIG });
@@ -56,22 +61,30 @@ export function useSimConfig() {
       fetch(`${API_BASE}/api/sim/presets`).then(r => r.json()).catch(() => ({} as Record<string, SimConfig>)),
     ]).then(([saved, presetData]) => {
       setPresets(presetData);
-      if (saved && saved.config) {
-        setConfig(saved.config);
-      } else if (saved && !saved.config) {
-        // 后端直接返回 SimConfig 对象（非嵌套结构）
-        setConfig(saved as SimConfig);
-      } else {
-        const defaultPreset = presetData.default;
-        if (defaultPreset) {
-          setConfig({ ...defaultPreset });
-        }
+      if (saved && typeof saved === 'object' && !Array.isArray(saved)) {
+        // ParamStore.get_all() 返回的是 flat 参数对象；直接合并到 SimConfig
+        setConfig(prev => ({ ...prev, ...saved }));
       }
       setReady(true);
     }).catch(() => {
       setReady(true);
     });
   }, []);
+
+  // 监听后端参数变更广播，同步更新本地 config（多客户端场景）
+  useEffect(() => {
+    if (!sim) return;
+    return sim.subscribeParamChange((msg) => {
+      setConfig(prev => {
+        const key = msg.key as keyof SimConfig;
+        // 只更新 SimConfig 中存在的字段
+        if (key in prev) {
+          return { ...prev, [key]: msg.value as SimConfig[keyof SimConfig] };
+        }
+        return prev;
+      });
+    });
+  }, [sim]);
 
   const updateConfig = useCallback(<K extends keyof SimConfig>(key: K, value: SimConfig[K]) => {
     setConfig(prev => ({ ...prev, [key]: value }));
@@ -138,24 +151,43 @@ export function useSimConfig() {
     setActivePreset('custom');
   }, []);
 
-  // ---- auto-save to backend (debounce 500ms) ----
+  // ---- auto-save to backend via WebSocket (debounce 500ms) ----
   const saveConfig = useCallback(async (cfg: SimConfig) => {
+    if (!sim) {
+      // 无 WebSocket 时回退到 REST PUT
+      setSaveStatus('saving');
+      try {
+        const res = await fetch(`${API_BASE}/api/config`, {
+          method: 'PUT',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify(cfg),
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        setSaveStatus('saved');
+        setTimeout(() => setSaveStatus('idle'), 2000);
+      } catch {
+        setSaveStatus('error');
+      }
+      return;
+    }
+
     setSaveStatus('saving');
     try {
-      const res = await fetch(`${API_BASE}/api/config`, {
-        method: 'PUT',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify(cfg),
+      const params: Record<string, unknown> = {};
+      (Object.keys(cfg) as Array<keyof SimConfig>).forEach(key => {
+        params[key] = cfg[key];
       });
-      if (!res.ok) {
-        throw new Error(`HTTP ${res.status}`);
+      const result = await sim.batchSetParams(params);
+      if (result.ok && result.results.every(r => r.ok)) {
+        setSaveStatus('saved');
+        setTimeout(() => setSaveStatus('idle'), 2000);
+      } else {
+        setSaveStatus('error');
       }
-      setSaveStatus('saved');
-      setTimeout(() => setSaveStatus('idle'), 2000);
     } catch {
       setSaveStatus('error');
     }
-  }, []);
+  }, [sim]);
 
   useEffect(() => {
     if (saveTimerRef.current) {

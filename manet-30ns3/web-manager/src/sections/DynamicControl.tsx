@@ -7,21 +7,32 @@ import { Slider } from '@/components/ui/slider';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { useDynamicControl } from '@/hooks/useDynamicControl';
-import type { NodeStatus, SimulationStatus, SimConfig, TelemetryEnv } from '@/types/config';
+import type { NodeStatus, SimulationStatus, SimConfig, TelemetryEnv, ParamChangeMsg } from '@/types/config';
 import {
   Zap, MapPin, Radio, Activity, Settings2,
   Send, CheckCircle, AlertCircle, Info
 } from 'lucide-react';
+
+interface SimApi {
+  setParam: (key: string, value: unknown) => Promise<{
+    ok: boolean;
+    key?: string;
+    reason?: string;
+    results?: Array<{ ok: boolean; nodeId?: number; reason?: string }>;
+  }>;
+  subscribeParamChange: (cb: (msg: ParamChangeMsg) => void) => () => void;
+}
 
 interface DynamicControlProps {
   status: SimulationStatus;
   nodes: NodeStatus[];
   config: SimConfig;
   env: TelemetryEnv | null;
+  sim: SimApi;
 }
 
-export function DynamicControl({ status, nodes, config, env }: DynamicControlProps) {
-  const ctrl = useDynamicControl();
+export function DynamicControl({ status, nodes, config, env, sim }: DynamicControlProps) {
+  const ctrl = useDynamicControl(sim);
   const [selectedNode, setSelectedNode] = useState(0);
   const [posX, setPosX] = useState('');
   const [posY, setPosY] = useState('');

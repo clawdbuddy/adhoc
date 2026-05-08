@@ -1,7 +1,7 @@
 """动态环境控制路由：运行时修改仿真参数。
 
 所有端点仅在仿真运行期间可用；仿真未运行时返回 409。
-命令通过线程安全队列注入 ns-3 仿真线程执行。
+内部实现委托 ParamStore，保持对外 REST 接口不变。
 """
 from __future__ import annotations
 
@@ -56,60 +56,67 @@ def _check_running() -> None:
         raise HTTPException(409, "仿真器未初始化")
 
 
+def _param_store() -> Any:
+    store = get_session().param_store
+    if store is None:
+        raise HTTPException(503, "参数存储模块未初始化")
+    return store
+
+
 @router.post("/api/env/txpower")
 async def set_tx_power(body: TxPowerBody) -> dict[str, Any]:
     """修改指定节点的发射功率。"""
     _check_running()
-    result = get_session().sim.set_tx_power(body.nodeId, body.dbm)
-    return {"ok": True, "nodeId": body.nodeId, "dbm": body.dbm, **result}
+    result = _param_store().set("txPower", {body.nodeId: body.dbm}, source="rest")
+    return {"ok": result.get("ok", False), "nodeId": body.nodeId, "dbm": body.dbm, **result}
 
 
 @router.post("/api/env/position")
 async def set_position(body: PositionBody) -> dict[str, Any]:
     """将指定节点跃迁到指定坐标。"""
     _check_running()
-    result = get_session().sim.set_node_position(body.nodeId, body.x, body.y, body.z)
-    return {"ok": True, "nodeId": body.nodeId, "x": body.x, "y": body.y, "z": body.z, **result}
+    result = _param_store().set("positions", {body.nodeId: {"x": body.x, "y": body.y, "z": body.z}}, source="rest")
+    return {"ok": result.get("ok", False), "nodeId": body.nodeId, "x": body.x, "y": body.y, "z": body.z, **result}
 
 
 @router.post("/api/env/rxsens")
 async def set_rx_sensitivity(body: RxSensBody) -> dict[str, Any]:
     """修改指定节点的接收灵敏度。"""
     _check_running()
-    result = get_session().sim.set_rx_sensitivity(body.nodeId, body.dbm)
-    return {"ok": True, "nodeId": body.nodeId, "dbm": body.dbm, **result}
+    result = _param_store().set("rxSensitivity", {body.nodeId: body.dbm}, source="rest")
+    return {"ok": result.get("ok", False), "nodeId": body.nodeId, "dbm": body.dbm, **result}
 
 
 @router.post("/api/env/pathloss")
 async def set_path_loss_exponent(body: PathLossBody) -> dict[str, Any]:
     """修改全局路径损耗指数（仅 LogDistance 模型生效）。"""
     _check_running()
-    result = get_session().sim.set_path_loss_exponent(body.exponent)
-    return {"ok": True, "exponent": body.exponent, **result}
+    result = _param_store().set("pathLossExponent", body.exponent, source="rest")
+    return {"ok": result.get("ok", False), "exponent": body.exponent, **result}
 
 
 @router.post("/api/env/frequency")
 async def set_frequency(body: FrequencyBody) -> dict[str, Any]:
     """修改全局中心频率（MHz）。"""
     _check_running()
-    result = get_session().sim.set_frequency(body.mhz)
-    return {"ok": True, "mhz": body.mhz, **result}
+    result = _param_store().set("frequencyMhz", body.mhz, source="rest")
+    return {"ok": result.get("ok", False), "mhz": body.mhz, **result}
 
 
 @router.post("/api/env/channelwidth")
 async def set_channel_width(body: ChannelWidthBody) -> dict[str, Any]:
     """修改全局信道宽度（MHz）。"""
     _check_running()
-    result = get_session().sim.set_channel_width(body.mhz)
-    return {"ok": True, "mhz": body.mhz, **result}
+    result = _param_store().set("channelWidthMhz", body.mhz, source="rest")
+    return {"ok": result.get("ok", False), "mhz": body.mhz, **result}
 
 
 @router.post("/api/env/range")
 async def set_range_target(body: RangeBody) -> dict[str, Any]:
     """修改 Range 传播模型的最大通信距离（米）。"""
     _check_running()
-    result = get_session().sim.set_range_target(body.meters)
-    return {"ok": True, "meters": body.meters, **result}
+    result = _param_store().set("rangeTargetM", body.meters, source="rest")
+    return {"ok": result.get("ok", False), "meters": body.meters, **result}
 
 
 @router.get("/api/env/current")

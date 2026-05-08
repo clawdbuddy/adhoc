@@ -157,6 +157,33 @@ export interface TelemetryEnv {
   pathLossModel?: string;
 }
 
+// ---------- ParamStore WebSocket types ----------
+export interface ParamResult {
+  ok: boolean;
+  key?: string;
+  value?: unknown;
+  scope?: 'static' | 'dynamic';
+  perNode?: boolean;
+  category?: string;
+  reason?: string;
+  results?: Array<{ ok: boolean; nodeId?: number; reason?: string }>;
+  note?: string;
+}
+
+export interface ParamBatchResult {
+  ok: boolean;
+  reqId?: string;
+  results: ParamResult[];
+}
+
+export interface ParamChangeMsg {
+  type: 'param_changed';
+  key: string;
+  value: unknown;
+  scope: 'static' | 'dynamic';
+  source: string;
+}
+
 export const STANDARDS = [
   '80211n-2.4GHz', '80211n-5GHz',
   '80211ac', '80211ax-2.4GHz', '80211ax-5GHz',

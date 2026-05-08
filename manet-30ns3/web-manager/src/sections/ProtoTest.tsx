@@ -3,7 +3,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
 import {
-  Wifi, Send, Trash2, Radio, Settings,
+  Wifi, Send, Trash2, Radio, Settings, RefreshCw,
   ChevronDown, ChevronRight, Clock, Plug, Unplug,
 } from 'lucide-react';
 
@@ -52,7 +52,7 @@ function buildFrame(data: Record<string, unknown>) {
 }
 
 export function ProtoTest() {
-  const [wsUrl, setWsUrl] = useState('ws://localhost:8765');
+  const [wsUrl, setWsUrl] = useState('ws://100.100.100.3:8000/ws/radio');
   const [connected, setConnected] = useState(false);
   const [messages, setMessages] = useState<Message[]>([]);
   const [customPayload, setCustomPayload] = useState('');
@@ -60,7 +60,14 @@ export function ProtoTest() {
     query: true,
     set: true,
     report: false,
+    reportCfg: false,
   });
+
+  // 上报配置状态
+  const [report5002Enabled, setReport5002Enabled] = useState(1);
+  const [report5002Period, setReport5002Period] = useState(2000);
+  const [report5006Enabled, setReport5006Enabled] = useState(1);
+  const [report5006Period, setReport5006Period] = useState(10000);
   const wsRef = useRef<WebSocket | null>(null);
   const msgIdRef = useRef(0);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -73,6 +80,33 @@ export function ProtoTest() {
   const [frequency, setFrequency] = useState(225);
   const [rate, setRate] = useState(2);
   const [extend, setExtend] = useState('KZ');
+
+  // 从 ns3-controller 获取的真实节点状态（用于上报类命令对接）
+  const [ns3Nodes, setNs3Nodes] = useState<Array<{ id: number; ip: string; status: string }>>([]);
+  const [ns3Loading, setNs3Loading] = useState(false);
+
+  // 拉取 ns3-controller 节点状态
+  const fetchNs3Nodes = useCallback(async () => {
+    setNs3Loading(true);
+    try {
+      const res = await fetch('/api/nodes');
+      if (res.ok) {
+        const data = await res.json();
+        setNs3Nodes(data);
+      }
+    } catch {
+      // ignore
+    } finally {
+      setNs3Loading(false);
+    }
+  }, []);
+
+  // 组件挂载时拉取一次
+  useEffect(() => {
+    fetchNs3Nodes();
+    const timer = setInterval(fetchNs3Nodes, 5000);
+    return () => clearInterval(timer);
+  }, [fetchNs3Nodes]);
 
   useEffect(() => {
     if (scrollRef.current) {
@@ -286,18 +320,116 @@ export function ProtoTest() {
             >
               {expandedGroups.report ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
               <Wifi className="h-3.5 w-3.5 text-green-500" />
-              上报类（模拟发送）
+              上报类（对接 ns3-controller）
             </button>
             {expandedGroups.report && (
-              <div className="px-3 pb-2 space-y-1">
-                <CmdBtn label="入网断网提示 (5002)" onClick={() => sendCmd(5002, { netMode, state: 1 })} />
-                <CmdBtn label="在线信息上报 (5006)" onClick={() => sendCmd(5006, { netMode, groupMebsIP: ['192.168.1.10', '192.168.1.11'] })} />
+              <div className="px-3 pb-2 space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs text-muted-foreground">
+                    在线节点: {ns3Nodes.filter(n => n.status === 'online').length}/{ns3Nodes.length}
+                  </span>
+                  <Button size="sm" variant="ghost" onClick={fetchNs3Nodes} disabled={ns3Loading} className="h-6 gap-1 text-xs">
+                    <RefreshCw className={cn('h-3 w-3', ns3Loading && 'animate-spin')} />
+                    刷新
+                  </Button>
+                </div>
+                <CmdBtn
+                  label={`入网断网提示 (5002) state=${ns3Nodes.some(n => n.status === 'online') ? 1 : 0}`}
+                  onClick={() => {
+                    const state = ns3Nodes.some(n => n.status === 'online') ? 1 : 0;
+                    sendCmd(5002, { netMode, state });
+                  }}
+                />
+                <CmdBtn
+                  label={`在线信息上报 (5006) IP数=${ns3Nodes.filter(n => n.status === 'online').length}`}
+                  onClick={() => {
+                    const onlineIps = ns3Nodes.filter(n => n.status === 'online').map(n => n.ip);
+                    sendCmd(5006, { netMode, groupMebsIP: onlineIps.length > 0 ? onlineIps : [] });
+                  }}
+                />
               </div>
             )}
           </div>
-        </div>
 
-        {/* 右侧：消息日志 + 自定义发送 */}
+          {/* 上报配置 */}
+          <div className="border rounded-lg bg-card overflow-hidden">
+            <button
+              onClick={() => toggleGroup('reportCfg')}
+              className="w-full flex items-center gap-2 px-3 py-2 text-sm font-medium hover:bg-accent/50"
+            >
+            {expandedGroups.reportCfg ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
+            <Settings className="h-3.5 w-3.5 text-purple-500" />
+            上报配置（开关与周期）
+          </button>
+          {expandedGroups.reportCfg && (
+            <div className="px-3 pb-2 space-y-2">
+              {/* 5002 */}
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-muted-foreground w-16">5002:</span>
+                <select
+                  value={report5002Enabled}
+                  onChange={e => setReport5002Enabled(Number(e.target.value))}
+                  className="h-6 rounded border bg-background px-1 text-xs"
+                >
+                  <option value={1}>开</option>
+                  <option value={0}>关</option>
+                </select>
+                <Input
+                  type="number"
+                  min={500}
+                  max={300000}
+                  step={100}
+                  value={report5002Period}
+                  onChange={e => setReport5002Period(Number(e.target.value))}
+                  className="h-6 w-20 text-xs"
+                />
+                <span className="text-xs text-muted-foreground">ms</span>
+              </div>
+              {/* 5006 */}
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-muted-foreground w-16">5006:</span>
+                <select
+                  value={report5006Enabled}
+                  onChange={e => setReport5006Enabled(Number(e.target.value))}
+                  className="h-6 rounded border bg-background px-1 text-xs"
+                >
+                  <option value={1}>开</option>
+                  <option value={0}>关</option>
+                </select>
+                <Input
+                  type="number"
+                  min={500}
+                  max={300000}
+                  step={100}
+                  value={report5006Period}
+                  onChange={e => setReport5006Period(Number(e.target.value))}
+                  className="h-6 w-20 text-xs"
+                />
+                <span className="text-xs text-muted-foreground">ms</span>
+              </div>
+              <div className="flex gap-2 pt-1">
+                <CmdBtn
+                  label="查询配置 (9001)"
+                  onClick={() => sendCmd(9001)}
+                />
+                <CmdBtn
+                  label="应用配置 (9003)"
+                  onClick={() =>
+                    sendCmd(9003, {
+                      report5002Enabled,
+                      report5002Period,
+                      report5006Enabled,
+                      report5006Period,
+                    })
+                  }
+                />
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* 右侧：消息日志 + 自定义发送 */}
         <div className="flex-1 min-w-0 flex flex-col gap-2">
           {/* 自定义发送 */}
           <div className="border rounded-lg p-2 bg-card shrink-0">

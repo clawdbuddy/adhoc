@@ -983,7 +983,11 @@ class SimRunner:
         return None, f"unable to get PHY from device (type: {dev_name or 'unknown'})"
 
     def set_node_position(self, node_id: int, x: float, y: float, z: float = 0.0) -> dict[str, Any]:
-        """将节点位置跃迁到指定坐标（线程安全）。"""
+        """将节点位置跃迁到指定坐标并冻结移动模型（线程安全）。
+
+        为避免 RandomWalk/GaussMarkov 等模型的内部事件调度把位置重新移走，
+        设置位置后会将节点的 MobilityModel 替换为 ConstantPositionMobilityModel。
+        """
         if node_id >= self.config.n_nodes:
             return {"applied": False, "reason": "node_id out of range"}
 
@@ -996,14 +1000,18 @@ class SimRunner:
             if not mm:
                 raise RuntimeError("mobility model not found on node")
             mm.SetPosition(ns.core.Vector(x, y, z))
+            # 将移动模型替换为 ConstantPositionMobilityModel，防止后续事件调度移动节点
+            mob_helper = ns.mobility.MobilityHelper()
+            mob_helper.SetMobilityModel("ns3::ConstantPositionMobilityModel")
+            nc = ns.network.NodeContainer()
+            nc.Add(node)
+            mob_helper.Install(nc)
             with self._lock:
                 self._env_state.positions[node_id] = {"x": float(x), "y": float(y), "z": float(z)}
-                # 同步更新 _nodes_runtime，避免 snapshot_nodes() 与 snapshot_env() 在
-                # _wall_pacer_loop 下一周期（100ms）前出现位置不一致。
                 nr = self._nodes_runtime.setdefault(node_id, NodeRuntime(id=node_id))
                 nr.x = float(x)
                 nr.y = float(y)
-            log.info("node-%d position set to (%.1f, %.1f, %.1f)", node_id, x, y, z)
+            log.info("node-%d position frozen to (%.1f, %.1f, %.1f)", node_id, x, y, z)
 
         return self._inject_command(_do)
 
