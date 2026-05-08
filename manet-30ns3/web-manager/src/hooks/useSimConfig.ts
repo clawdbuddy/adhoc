@@ -78,11 +78,16 @@ export function useSimConfig(sim?: SimApi) {
     return sim.subscribeParamChange((msg) => {
       setConfig(prev => {
         const key = msg.key as keyof SimConfig;
-        // 值未变时返回原对象，避免触发无意义的 re-render 和 auto-save
-        if (key in prev && prev[key] !== msg.value) {
-          return { ...prev, [key]: msg.value as SimConfig[keyof SimConfig] };
-        }
-        return prev;
+        if (!(key in prev)) return prev;
+        const prevVal = prev[key];
+        const newVal = msg.value as SimConfig[keyof SimConfig];
+        // 宽松比较：处理 number/string 类型漂移（如后端广播 "2412" 而前端是 2412）
+        const changed = prevVal !== newVal && String(prevVal) !== String(newVal);
+        if (!changed) return prev;
+        const updated = { ...prev, [key]: newVal };
+        // 广播更新时同步更新 lastSavedJsonRef，避免触发 auto-save 循环
+        lastSavedJsonRef.current = JSON.stringify(updated);
+        return updated;
       });
     });
   }, [sim]);
