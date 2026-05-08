@@ -104,7 +104,7 @@ export function Dashboard({ status, flows, nodes, config }: DashboardProps) {
               </span>
             </TooltipTrigger>
             <TooltipContent side="bottom" className="max-w-xs text-xs">
-              <p>ns-3 WifiNetDevice 接收包总数，含数据包、信标、ACK、广播等控制包。</p>
+              <p>WifiNetDevice 接收包总数，含数据包、信标、ACK、广播等控制包。</p>
               <p className="mt-1 text-amber-400">注：广播包会被每个邻居各计一次接收，因此该值通常远大于发送量。</p>
             </TooltipContent>
           </Tooltip>
@@ -121,7 +121,7 @@ export function Dashboard({ status, flows, nodes, config }: DashboardProps) {
               </span>
             </TooltipTrigger>
             <TooltipContent side="bottom" className="max-w-xs text-xs">
-              <p>ns-3 WifiNetDevice 发送包总数，含数据包、信标、RTS/CTS 等控制包。</p>
+              <p>WifiNetDevice 发送包总数，含数据包、信标、RTS/CTS 等控制包。</p>
             </TooltipContent>
           </Tooltip>
 
@@ -141,7 +141,7 @@ export function Dashboard({ status, flows, nodes, config }: DashboardProps) {
               </span>
             </TooltipTrigger>
             <TooltipContent side="bottom" className="max-w-xs text-xs">
-              <p>FlowMonitor 统计的 IP 层丢包率（仅对 ns-3 内部流量有效）。</p>
+              <p>FlowMonitor 统计的 IP 层丢包率（仅对仿真内部流量有效）。</p>
               <p className="mt-1 text-amber-400">注：TapBridge 模式下 FlowMonitor 看不到容器流量，此处通常显示 0。</p>
             </TooltipContent>
           </Tooltip>
@@ -187,9 +187,9 @@ export function Dashboard({ status, flows, nodes, config }: DashboardProps) {
       {/* MAC Layer Overhead Estimation */}
       {config && (
         <Card className="border-slate-200/60 shadow-card hover:shadow-card-hover transition-shadow duration-200 overflow-hidden">
-          <CardHeader className="pb-3">
-            <CardTitle className="text-xs flex items-center gap-2 text-muted-foreground uppercase tracking-wider font-semibold">
-              <Radio className="h-3.5 w-3.5 text-primary" />
+          <CardHeader className="pb-1 pt-3 px-4">
+            <CardTitle className="text-[11px] flex items-center gap-2 text-muted-foreground uppercase tracking-wider font-semibold">
+              <Radio className="h-3 w-3 text-primary" />
               MAC 层开销估算
               <Tooltip>
                 <TooltipTrigger asChild>
@@ -202,34 +202,34 @@ export function Dashboard({ status, flows, nodes, config }: DashboardProps) {
               </Tooltip>
             </CardTitle>
           </CardHeader>
-          <CardContent>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-xs">
-              <div className="space-y-1.5">
-                <span className="text-muted-foreground text-[11px]">信标间隔</span>
-                <div className="font-mono font-semibold text-base">{(config.beaconInterval * 1.024).toFixed(1)} <span className="text-xs text-muted-foreground font-normal">ms</span></div>
+          <CardContent className="py-2 px-4">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
+              <div className="space-y-0.5">
+                <span className="text-muted-foreground text-[10px]">信标间隔</span>
+                <div className="font-mono font-semibold text-sm">{(config.beaconInterval * 1.024).toFixed(1)} <span className="text-[10px] text-muted-foreground font-normal">ms</span></div>
                 <div className="text-[10px] text-muted-foreground">{config.beaconInterval} TU</div>
               </div>
-              <div className="space-y-1.5">
-                <span className="text-muted-foreground text-[11px]">估算信标帧长</span>
-                <div className="font-mono font-semibold text-base">{80 + config.ssid.length * 2 + 20} <span className="text-xs text-muted-foreground font-normal">B</span></div>
+              <div className="space-y-0.5">
+                <span className="text-muted-foreground text-[10px]">估算信标帧长</span>
+                <div className="font-mono font-semibold text-sm">{80 + config.ssid.length * 2 + 20} <span className="text-[10px] text-muted-foreground font-normal">B</span></div>
                 <div className="text-[10px] text-muted-foreground">SSID={config.ssid.length} 字节</div>
               </div>
-              <div className="space-y-1.5">
-                <span className="text-muted-foreground text-[11px]">ACK 帧长</span>
-                <div className="font-mono font-semibold text-base">14 <span className="text-xs text-muted-foreground font-normal">B</span></div>
+              <div className="space-y-0.5">
+                <span className="text-muted-foreground text-[10px]">ACK 帧长</span>
+                <div className="font-mono font-semibold text-sm">14 <span className="text-[10px] text-muted-foreground font-normal">B</span></div>
                 <div className="text-[10px] text-muted-foreground">802.11 固定</div>
               </div>
-              <div className="space-y-1.5">
-                <span className="text-muted-foreground text-[11px]">控制帧倍率</span>
-                <div className={`font-mono font-semibold text-base ${totalTxNodes > 0 && totalRxNodes / totalTxNodes > 10 ? 'text-warning' : ''}`}>
-                  {totalTxNodes > 0 ? (totalRxNodes / totalTxNodes).toFixed(1) : '—'}<span className="text-xs text-muted-foreground font-normal">x</span>
+              <div className="space-y-0.5">
+                <span className="text-muted-foreground text-[10px]">控制帧倍率</span>
+                <div className={`font-mono font-semibold text-sm ${totalTxNodes > 0 && totalRxNodes / totalTxNodes > 10 ? 'text-warning' : ''}`}>
+                  {totalTxNodes > 0 ? (totalRxNodes / totalTxNodes).toFixed(1) : '—'}<span className="text-[10px] text-muted-foreground font-normal">x</span>
                 </div>
                 <div className="text-[10px] text-muted-foreground">rx/tx</div>
               </div>
             </div>
             {totalTxNodes > 0 && totalRxNodes / totalTxNodes > 10 && (
-              <div className="mt-3 text-[11px] text-amber-700 bg-amber-50 border border-amber-200/60 rounded-lg px-3 py-2 flex items-start gap-2">
-                <Zap className="h-3.5 w-3.5 shrink-0 mt-0.5 text-amber-500" />
+              <div className="mt-2 text-[11px] text-amber-700 bg-amber-50 border border-amber-200/60 rounded-lg px-3 py-1 flex items-start gap-2">
+                <Zap className="h-3 w-3 shrink-0 mt-0.5 text-amber-500" />
                 <span>
                   接收量约为发送量的 {(totalRxNodes / totalTxNodes).toFixed(0)} 倍，说明信标/广播等控制帧占主导。
                   {config.macMode === 'adhoc' && ' Adhoc 模式下信标和探测帧开销较大，切到 mesh 或增大 beaconInterval 可降低。'}

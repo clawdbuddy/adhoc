@@ -143,7 +143,7 @@ export function DynamicControl({ status, nodes, config, env, sim }: DynamicContr
       >
         <Info className="h-4 w-4 shrink-0 mt-0.5 text-primary" />
         <span>
-          所有动态参数均作用于 <strong>ns-3 Controller</strong> 仿真层（传播模型 / PHY / MAC），
+          所有动态参数均作用于 <strong>Controller</strong> 仿真层（传播模型 / PHY / MAC），
           不会下发到节点容器。
         </span>
       </div>
@@ -203,7 +203,7 @@ export function DynamicControl({ status, nodes, config, env, sim }: DynamicContr
               </div>
               节点位置跃迁
               <Badge variant="secondary" className="text-[10px] px-1.5 py-0 h-4 ml-auto font-mono"
-              >ns-3</Badge>
+              >仿真</Badge>
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-3"
@@ -263,7 +263,7 @@ export function DynamicControl({ status, nodes, config, env, sim }: DynamicContr
               </div>
               发射功率
               <Badge variant="secondary" className="text-[10px] px-1.5 py-0 h-4 ml-auto font-mono"
-              >ns-3</Badge>
+              >仿真</Badge>
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-3"
@@ -311,7 +311,7 @@ export function DynamicControl({ status, nodes, config, env, sim }: DynamicContr
               </div>
               接收灵敏度
               <Badge variant="secondary" className="text-[10px] px-1.5 py-0 h-4 ml-auto font-mono"
-              >ns-3</Badge>
+              >仿真</Badge>
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-3"
@@ -359,7 +359,7 @@ export function DynamicControl({ status, nodes, config, env, sim }: DynamicContr
               </div>
               路径损耗指数
               <Badge variant="secondary" className="text-[10px] px-1.5 py-0 h-4 ml-auto font-mono"
-              >ns-3</Badge>
+              >仿真</Badge>
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-3"
@@ -414,7 +414,7 @@ export function DynamicControl({ status, nodes, config, env, sim }: DynamicContr
               </div>
               中心频率
               <Badge variant="secondary" className="text-[10px] px-1.5 py-0 h-4 ml-auto font-mono"
-              >ns-3</Badge>
+              >仿真</Badge>
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-3"
@@ -462,7 +462,7 @@ export function DynamicControl({ status, nodes, config, env, sim }: DynamicContr
               </div>
               信道宽度
               <Badge variant="secondary" className="text-[10px] px-1.5 py-0 h-4 ml-auto font-mono"
-              >ns-3</Badge>
+              >仿真</Badge>
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-3"
@@ -514,7 +514,7 @@ export function DynamicControl({ status, nodes, config, env, sim }: DynamicContr
               </div>
               最大通信距离 (Range 模型)
               <Badge variant="secondary" className="text-[10px] px-1.5 py-0 h-4 ml-auto font-mono"
-              >ns-3</Badge>
+              >仿真</Badge>
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-3"

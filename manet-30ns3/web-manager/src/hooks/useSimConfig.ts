@@ -15,7 +15,7 @@ const FALLBACK_CONFIG: SimConfig = {
   pathLossExponent: 2.0, pathLossRefLoss: 46.6777, pathLossRefDistance: 1.0,
   enableFading: false, fadingModel: 'Nakagami',
   nakagamiM0: 1.5, nakagamiM1: 1.0, nakagamiM2: 0.75, nakagamiD1: 50, nakagamiD2: 100,
-  ssid: 'adhoc-30ns3', bssid: '00:00:00:00:AD:H0',
+  ssid: 'mesh-network', bssid: '00:00:00:00:AD:H0',
   macMode: 'mesh', rateControl: 'Constant', rtsCtsThreshold: 2200, fragmentationThreshold: 2200,
   nonUnicastMode: false, beaconInterval: 100, cwMin: 15, cwMax: 1023,
   routingProtocol: 'aodv', aodvHelloInterval: 1, aodvRreqRetries: 2,
@@ -112,7 +112,7 @@ export function useSimConfig(sim?: SimApi) {
   }, [presets]);
 
   const exportConfig = useCallback((): string => {
-    const lines: string[] = ['// NS-3 802.11s Mesh / AdHoc Simulation Configuration'];
+    const lines: string[] = ['// MANET 仿真配置'];
     (Object.keys(config) as Array<keyof SimConfig>).forEach(key => {
       const value = config[key];
       if (typeof value === 'boolean') {

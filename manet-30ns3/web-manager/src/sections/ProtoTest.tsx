@@ -319,7 +319,7 @@ export function ProtoTest() {
             >
               {expandedGroups.report ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
               <Network className="h-3.5 w-3.5 text-emerald-500" />
-              上报类（对接 ns3-controller）
+              上报类（对接 控制器）
             </button>
             {expandedGroups.report && (
               <div className="px-3 pb-2.5 space-y-2">

@@ -1,4 +1,4 @@
-// ns-3 MANET 仿真配置类型定义
+// MANET 仿真配置类型定义
 // 与后端 controller/orchestrator/config.py:SimConfig 逐字段对齐
 
 export interface SimConfig {
