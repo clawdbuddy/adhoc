@@ -53,7 +53,6 @@ DYNAMIC_PARAMS: dict[str, ParamMeta] = {
     "channelWidthMhz": ParamMeta("channelWidthMhz", "channel_width_mhz", "dynamic", False, "phy"),
     "rangeTargetM": ParamMeta("rangeTargetM", "range_target_m", "dynamic", False, "propagation"),
     "positions": ParamMeta("positions", "positions", "dynamic", True, "mobility"),
-    "pathLossModel": ParamMeta("pathLossModel", "path_loss_model", "dynamic", False, "propagation"),
 }
 
 # static 参数通过 SimConfig 的 schema 反射生成（见 ParamStore._build_static_registry）
@@ -229,8 +228,6 @@ class ParamStore:
                 overrides = {"channelWidthMhz": value}
             elif meta.key == "rangeTargetM":
                 overrides = {"rangeTargetM": value}
-            elif meta.key == "pathLossModel":
-                overrides = {"pathLossModel": value}
             try:
                 sess.config = sess.config.merged_with(overrides)
                 save_config_to_file(sess.config)
@@ -263,9 +260,6 @@ class ParamStore:
             if key == "rangeTargetM":
                 r = sim.set_range_target(float(value))
                 return {"ok": r.get("applied", False), **r, "key": key}
-            if key == "pathLossModel":
-                # pathLossModel 运行时不可修改（ns-3 传播模型实例已创建）
-                return {"ok": False, "key": key, "reason": "pathLossModel requires simulator restart"}
 
             return {"ok": False, "key": key, "reason": f"unsupported dynamic parameter: {key}"}
         except Exception as e:

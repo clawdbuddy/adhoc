@@ -178,10 +178,15 @@ export function useSimConfig(sim?: SimApi) {
         params[key] = cfg[key];
       });
       const result = await sim.batchSetParams(params);
-      if (result.ok && result.results.every(r => r.ok)) {
+      // 忽略预期内的失败（如运行时不可修改的参数），只把真正异常视为错误
+      const realFailures = (result.results || []).filter(
+        (r: any) => !r.ok && !(r.reason || '').includes('requires simulator restart')
+      );
+      if (realFailures.length === 0) {
         setSaveStatus('saved');
         setTimeout(() => setSaveStatus('idle'), 2000);
       } else {
+        console.warn('save failed for keys:', realFailures.map((r: any) => r.key));
         setSaveStatus('error');
       }
     } catch {

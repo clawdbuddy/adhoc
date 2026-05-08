@@ -164,9 +164,11 @@ async def _handle_param_batch_set(ws: WebSocket, msg: dict[str, Any], req_id: st
         await _send_safe(ws, {"type": "param_batch_response", "reqId": req_id, "ok": False, "reason": "param_store not ready"})
         return
     results = store.batch_set(params, source="ws")
+    ok = all(r.get("ok") for r in results)
     await _send_safe(ws, {
         "type": "param_batch_response",
         "reqId": req_id,
+        "ok": ok,
         "results": results,
     })
 

@@ -112,22 +112,11 @@ function drawScene(
   drag: DragState | null,
   hoverId: number | null,
   phase: number,
-  lastDrag: DragState | null,
 ) {
   const ctx = canvas.getContext('2d');
   if (!ctx) return;
 
   const view = applyDragOverride(nodes, drag);
-  // 拖拽提交后、遥测帧未到达前，用 lastDrag 保持位置避免弹回
-  if (!drag && lastDrag) {
-    const currentNode = nodes.find(n => n.id === lastDrag.nodeId);
-    if (currentNode && (Math.abs(currentNode.x - lastDrag.simX) > 1 || Math.abs(currentNode.y - lastDrag.simY) > 1)) {
-      const idx = view.findIndex(n => n.id === lastDrag.nodeId);
-      if (idx >= 0) {
-        view[idx] = { ...view[idx], x: lastDrag.simX, y: lastDrag.simY };
-      }
-    }
-  }
   const g = computeGeom(canvas, view);
   const dpr = window.devicePixelRatio || 1;
   const targetW = Math.round(g.w * dpr);
@@ -324,25 +313,12 @@ export function TopologyView({ nodes, flows, running, compact, sim }: TopologyVi
   const [drag, setDrag] = useState<DragState | null>(null);
   const [hoverId, setHoverId] = useState<number | null>(null);
   const [toast, setToast] = useState<string | null>(null);
-  // 拖拽提交后、遥测帧到达前的过渡位置，避免视觉弹回
-  const lastDragRef = useRef<DragState | null>(null);
 
   // Latest props in refs so the single RAF loop always reads fresh values
-  const propsRef = useRef({ nodes, flows, drag, hoverId, lastDrag: lastDragRef.current });
+  const propsRef = useRef({ nodes, flows, drag, hoverId });
   useEffect(() => {
-    propsRef.current = { nodes, flows, drag, hoverId, lastDrag: lastDragRef.current };
+    propsRef.current = { nodes, flows, drag, hoverId };
   }, [nodes, flows, drag, hoverId]);
-
-  // 遥测帧到达后，若 nodes 已同步到 lastDrag 位置则清除过渡态
-  useEffect(() => {
-    if (lastDragRef.current) {
-      const last = lastDragRef.current;
-      const currentNode = nodes.find(n => n.id === last.nodeId);
-      if (currentNode && Math.abs(currentNode.x - last.simX) <= 1 && Math.abs(currentNode.y - last.simY) <= 1) {
-        lastDragRef.current = null;
-      }
-    }
-  }, [nodes]);
 
   // Single RAF render loop — always running so flow dashes animate continuously
   useEffect(() => {
@@ -352,7 +328,7 @@ export function TopologyView({ nodes, flows, running, compact, sim }: TopologyVi
       const canvas = canvasRef.current;
       if (canvas) {
         const p = propsRef.current;
-        drawScene(canvas, p.nodes, p.flows, p.drag, p.hoverId, phase, p.lastDrag);
+        drawScene(canvas, p.nodes, p.flows, p.drag, p.hoverId, phase);
       }
       phase = (phase + 0.6) % 1024;
       raf = requestAnimationFrame(tick);
@@ -377,7 +353,6 @@ export function TopologyView({ nodes, flows, running, compact, sim }: TopologyVi
     const g = computeGeom(canvas, viewNodes);
     const hit = findNodeAt(viewNodes, g, cx, cy);
     if (!hit) return;
-    lastDragRef.current = null; // 开始新拖拽时清除过渡位置
     setDrag({ nodeId: hit.id, simX: hit.x, simY: hit.y, moved: false });
   };
 
@@ -407,10 +382,8 @@ export function TopologyView({ nodes, flows, running, compact, sim }: TopologyVi
     const result = await ctrl.setNodePosition(target.nodeId, target.simX, target.simY);
     setDrag(null);
     if (result.ok) {
-      lastDragRef.current = target;
       setToast(`node-${target.nodeId} → (${target.simX.toFixed(0)}, ${target.simY.toFixed(0)})m`);
     } else {
-      lastDragRef.current = null;
       setToast(`提交失败: ${result.reason || 'unknown'}`);
     }
     window.setTimeout(() => setToast(null), 2500);

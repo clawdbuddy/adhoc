@@ -69,6 +69,29 @@ export function useSimulation(initialNnodes: number = 5) {
   const pendingRef = useRef<Map<string, PendingRequest>>(new Map());
   const paramCallbacksRef = useRef<Set<ParamChangeCallback>>(new Set());
 
+  // 写保护：串行化并发参数写入，避免竞态
+  const writeQueueRef = useRef<Array<() => Promise<void>>>([]);
+  const isWritingRef = useRef(false);
+
+  const processWriteQueue = useCallback(async () => {
+    if (isWritingRef.current) return;
+    isWritingRef.current = true;
+    while (writeQueueRef.current.length > 0) {
+      const fn = writeQueueRef.current.shift()!;
+      try { await fn(); } catch { /* ignore */ }
+    }
+    isWritingRef.current = false;
+  }, []);
+
+  const enqueueWrite = useCallback((fn: () => Promise<void>) => {
+    return new Promise<void>((resolve, reject) => {
+      writeQueueRef.current.push(async () => {
+        try { await fn(); resolve(); } catch (e) { reject(e); }
+      });
+      processWriteQueue();
+    });
+  }, [processWriteQueue]);
+
   const addLog = useCallback((msg: string) => {
     setLogs(prev => [msg, ...prev].slice(0, 500));
   }, []);
@@ -101,17 +124,50 @@ export function useSimulation(initialNnodes: number = 5) {
     });
   }, []);
 
+  // 乐观更新节点位置：写入后立即反映到本地 nodes，避免遥测帧到达前的视觉弹回
+  const applyOptimisticPositions = useCallback((value: unknown) => {
+    if (typeof value !== 'object' || value === null) return;
+    const updates = value as Record<string, { x?: number; y?: number; z?: number }>;
+    setNodes(prev => {
+      const next = [...prev];
+      for (const [nodeIdStr, pos] of Object.entries(updates)) {
+        const nodeId = parseInt(nodeIdStr, 10);
+        const idx = next.findIndex(n => n.id === nodeId);
+        if (idx >= 0 && pos) {
+          next[idx] = { ...next[idx], x: pos.x ?? next[idx].x, y: pos.y ?? next[idx].y };
+        }
+      }
+      return next;
+    });
+  }, []);
+
   const setParam = useCallback((key: string, value: unknown): Promise<ParamResult> => {
-    return sendAndWait<ParamResult>({ type: 'param_set', key, value });
-  }, [sendAndWait]);
+    return new Promise((resolve, reject) => {
+      enqueueWrite(async () => {
+        if (key === 'positions') {
+          applyOptimisticPositions(value);
+        }
+        const r = await sendAndWait<ParamResult>({ type: 'param_set', key, value });
+        resolve(r);
+      }).catch(reject);
+    });
+  }, [sendAndWait, enqueueWrite, applyOptimisticPositions]);
 
   const getParam = useCallback((key: string): Promise<ParamResult> => {
     return sendAndWait<ParamResult>({ type: 'param_get', key });
   }, [sendAndWait]);
 
   const batchSetParams = useCallback((params: Record<string, unknown>): Promise<ParamBatchResult> => {
-    return sendAndWait<ParamBatchResult>({ type: 'param_batch_set', params });
-  }, [sendAndWait]);
+    return new Promise((resolve, reject) => {
+      enqueueWrite(async () => {
+        if ('positions' in params) {
+          applyOptimisticPositions(params.positions);
+        }
+        const r = await sendAndWait<ParamBatchResult>({ type: 'param_batch_set', params });
+        resolve(r);
+      }).catch(reject);
+    });
+  }, [sendAndWait, enqueueWrite, applyOptimisticPositions]);
 
   // ---- WebSocket subscription, with auto-reconnect ----
   const connectWs = useCallback(() => {

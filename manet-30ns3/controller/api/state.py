@@ -66,6 +66,11 @@ class Session:
     preset: Optional[str] = None
     _lock: threading.Lock = field(default_factory=threading.Lock)
 
+    def __post_init__(self):
+        # ParamStore 始终存活，支持无仿真时的参数读写
+        if self.param_store is None:
+            self.param_store = ParamStore(self)
+
     # ---------------------------------------------------------- 生命周期
     async def start(
         self,
@@ -129,15 +134,11 @@ class Session:
         tele = Telemetry(sim, docker_mgr, specs)
         await tele.start(period=0.2)
 
-        # 5. 初始化参数存储模块
-        param_store = ParamStore(self)
-
         with self._lock:
             self.config = cfg
             self.docker_mgr = docker_mgr
             self.sim = sim
             self.telemetry = tele
-            self.param_store = param_store
             self.specs = specs
             self.preset = preset
 
@@ -150,7 +151,7 @@ class Session:
         with self._lock:
             sim, docker_mgr, tele, specs = self.sim, self.docker_mgr, self.telemetry, self.specs
             cfg = self.config
-            self.sim = self.docker_mgr = self.telemetry = self.param_store = None
+            self.sim = self.docker_mgr = self.telemetry = None
             self.specs = []
             self.preset = None
 

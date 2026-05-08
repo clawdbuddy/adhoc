@@ -16,11 +16,12 @@ router = APIRouter(prefix="/api/config", tags=["config"])
 
 @router.get("")
 async def get_config() -> dict[str, Any]:
-    """获取当前全部参数快照（static + dynamic，camelCase JSON）。"""
+    """获取当前静态配置快照（SimConfig 字段，camelCase JSON）。
+
+    注意：只返回 static 参数（可用于启动仿真的配置），
+    dynamic 运行时参数（positions / txPower 等）请通过 /ws/telemetry 获取。
+    """
     sess = get_session()
-    if sess.param_store is not None:
-        return sess.param_store.get_all()
-    # fallback: 直接返回 SimConfig dump（兼容 ParamStore 未初始化时）
     return sess.config.model_dump(by_alias=True)
 
 
