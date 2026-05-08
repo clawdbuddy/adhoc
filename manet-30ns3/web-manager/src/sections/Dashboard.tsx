@@ -26,21 +26,21 @@ function StatCard({ label, value, subValue, icon, iconBg, trend, tooltip }: Stat
   return (
     <Tooltip>
       <TooltipTrigger asChild>
-        <div className="bg-card rounded-xl border p-4 shadow-card hover:shadow-card-hover transition-all duration-200 card-lift cursor-default">
+        <div className="bg-card rounded-lg border p-2 shadow-card hover:shadow-card-hover transition-all duration-200 card-lift cursor-default">
           <div className="flex items-start justify-between">
-            <div className="space-y-2">
-              <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">{label}</p>
-              <div className="flex items-baseline gap-2">
-                <span className="text-2xl font-bold tracking-tight">{value}</span>
+            <div className="space-y-0.5">
+              <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">{label}</p>
+              <div className="flex items-baseline gap-1.5">
+                <span className="text-lg font-bold tracking-tight">{value}</span>
                 {trend && trend !== 'neutral' && (
                   trend === 'up'
-                    ? <TrendingUp className="h-4 w-4 text-success" />
-                    : <TrendingDown className="h-4 w-4 text-destructive" />
+                    ? <TrendingUp className="h-3 w-3 text-success" />
+                    : <TrendingDown className="h-3 w-3 text-destructive" />
                 )}
               </div>
-              {subValue && <p className="text-xs text-muted-foreground">{subValue}</p>}
+              {subValue && <p className="text-[10px] text-muted-foreground">{subValue}</p>}
             </div>
-            <div className={`h-10 w-10 rounded-xl flex items-center justify-center shrink-0 ${iconBg}`}>
+            <div className={`h-7 w-7 rounded-lg flex items-center justify-center shrink-0 ${iconBg}`}>
               {icon}
             </div>
           </div>
@@ -144,7 +144,7 @@ export function Dashboard({ status, flows, nodes }: DashboardProps) {
           label="在线节点"
           value={`${onlineNodes}/${nodes.length}`}
           subValue={status.running ? '实时更新' : '仿真未运行'}
-          icon={<Wifi className="h-5 w-5 text-success" />}
+          icon={<Wifi className="h-4 w-4 text-success" />}
           iconBg="bg-success/10"
           tooltip="当前处于 online 状态的节点数量"
         />
@@ -152,7 +152,7 @@ export function Dashboard({ status, flows, nodes }: DashboardProps) {
           label="活跃流量"
           value={activeFlowCount}
           subValue={`${flows.length} 总流`}
-          icon={<Router className="h-5 w-5 text-primary" />}
+          icon={<Router className="h-4 w-4 text-primary" />}
           iconBg="bg-primary/10"
           tooltip="当前有数据包发送的活跃流量数"
         />
@@ -160,7 +160,7 @@ export function Dashboard({ status, flows, nodes }: DashboardProps) {
           label="总发送量"
           value={totalTxNodes > 1000 ? `${(totalTxNodes / 1000).toFixed(1)}k` : totalTxNodes}
           subValue="packets"
-          icon={<ArrowUpFromLine className="h-5 w-5 text-cyan-500" />}
+          icon={<ArrowUpFromLine className="h-4 w-4 text-cyan-500" />}
           iconBg="bg-cyan-500/10"
           tooltip="所有节点 WifiNetDevice 发送包总数"
         />
@@ -168,7 +168,7 @@ export function Dashboard({ status, flows, nodes }: DashboardProps) {
           label="总接收量"
           value={totalRxNodes > 1000 ? `${(totalRxNodes / 1000).toFixed(1)}k` : totalRxNodes}
           subValue="packets"
-          icon={<ArrowDownToLine className="h-5 w-5 text-violet-500" />}
+          icon={<ArrowDownToLine className="h-4 w-4 text-violet-500" />}
           iconBg="bg-violet-500/10"
           tooltip="所有节点 WifiNetDevice 接收包总数（含广播重复计数）"
         />
