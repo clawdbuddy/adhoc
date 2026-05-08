@@ -1006,6 +1006,11 @@ class SimRunner:
             nc = ns.network.NodeContainer()
             nc.Add(node)
             mob_helper.Install(nc)
+            # Install() 会调用 positionAllocator->GetNext() 分配随机位置并覆盖 SetPosition()
+            # 因此必须重新设置目标坐标
+            mm2 = node.GetObject[ns.mobility.MobilityModel]()
+            if mm2:
+                mm2.SetPosition(ns.core.Vector(x, y, z))
             with self._lock:
                 self._env_state.positions[node_id] = {"x": float(x), "y": float(y), "z": float(z)}
                 nr = self._nodes_runtime.setdefault(node_id, NodeRuntime(id=node_id))
