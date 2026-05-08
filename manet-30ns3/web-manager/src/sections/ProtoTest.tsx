@@ -1,10 +1,12 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
 import {
   Wifi, Send, Trash2, Radio, Settings, RefreshCw,
   ChevronDown, ChevronRight, Clock, Plug, Unplug,
+  Cpu, Network, MessageSquare,
 } from 'lucide-react';
 
 interface Message {
@@ -63,7 +65,6 @@ export function ProtoTest() {
     reportCfg: false,
   });
 
-  // 上报配置状态
   const [report5002Enabled, setReport5002Enabled] = useState(1);
   const [report5002Period, setReport5002Period] = useState(2000);
   const [report5006Enabled, setReport5006Enabled] = useState(1);
@@ -72,7 +73,6 @@ export function ProtoTest() {
   const msgIdRef = useRef(0);
   const scrollRef = useRef<HTMLDivElement>(null);
 
-  // 参数状态
   const [netMode, setNetMode] = useState(1);
   const [ctrl, setCtrl] = useState(1);
   const [power, setPower] = useState(1);
@@ -81,11 +81,9 @@ export function ProtoTest() {
   const [rate, setRate] = useState(2);
   const [extend, setExtend] = useState('KZ');
 
-  // 从 ns3-controller 获取的真实节点状态（用于上报类命令对接）
   const [ns3Nodes, setNs3Nodes] = useState<Array<{ id: number; ip: string; status: string }>>([]);
   const [ns3Loading, setNs3Loading] = useState(false);
 
-  // 拉取 ns3-controller 节点状态
   const fetchNs3Nodes = useCallback(async () => {
     setNs3Loading(true);
     try {
@@ -101,7 +99,6 @@ export function ProtoTest() {
     }
   }, []);
 
-  // 组件挂载时拉取一次
   useEffect(() => {
     fetchNs3Nodes();
     const timer = setInterval(fetchNs3Nodes, 5000);
@@ -184,28 +181,28 @@ export function ProtoTest() {
   };
 
   return (
-    <div className="h-full flex flex-col overflow-hidden p-3 gap-3">
+    <div className="h-full flex flex-col overflow-hidden p-4 gap-3">
       {/* 顶部连接栏 */}
-      <div className="flex items-center gap-3 shrink-0">
+      <div className="flex items-center gap-3 shrink-0 bg-card rounded-xl border border-slate-200/60 p-3 shadow-card">
         <div className={cn(
-          'h-3 w-3 rounded-full shrink-0',
-          connected ? 'bg-green-500 animate-pulse' : 'bg-red-500'
+          'h-3 w-3 rounded-full shrink-0 ring-2 ring-offset-1 ring-offset-background transition-all',
+          connected ? 'bg-success ring-success/30 status-glow-green' : 'bg-destructive ring-destructive/30'
         )} />
-        <span className="text-sm font-medium shrink-0">
+        <span className="text-sm font-semibold shrink-0">
           {connected ? '已连接' : '未连接'}
         </span>
         <Input
           value={wsUrl}
           onChange={e => setWsUrl(e.target.value)}
           placeholder="ws://host:port"
-          className="flex-1 h-8 text-sm"
+          className="flex-1 h-9 text-sm"
           disabled={connected}
         />
         <Button
           size="sm"
           onClick={connected ? disconnect : connect}
           variant={connected ? 'destructive' : 'default'}
-          className="h-8 gap-1"
+          className="h-9 gap-1.5"
         >
           {connected ? <Unplug className="h-3.5 w-3.5" /> : <Plug className="h-3.5 w-3.5" />}
           {connected ? '断开' : '连接'}
@@ -215,21 +212,23 @@ export function ProtoTest() {
       {/* 主体 */}
       <div className="flex-1 min-h-0 flex gap-3">
         {/* 左侧面板：命令 */}
-        <div className="w-[380px] shrink-0 flex flex-col gap-2 overflow-auto pr-1">
+        <div className="w-[400px] shrink-0 flex flex-col gap-2 overflow-auto pr-1">
           {/* 公共参数 */}
-          <div className="border rounded-lg p-2 bg-card space-y-2">
-            <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">公共参数</div>
-            <div className="grid grid-cols-2 gap-2">
+          <div className="border border-slate-200/60 rounded-xl p-3 bg-card shadow-card space-y-2.5">
+            <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
+              <Cpu className="h-3 w-3" /> 公共参数
+            </div>
+            <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="text-xs text-muted-foreground">extend</label>
-                <Input value={extend} onChange={e => setExtend(e.target.value)} className="h-7 text-xs" />
+                <label className="text-xs text-muted-foreground block mb-1">extend</label>
+                <Input value={extend} onChange={e => setExtend(e.target.value)} className="h-8 text-xs" />
               </div>
               <div>
-                <label className="text-xs text-muted-foreground">netMode</label>
+                <label className="text-xs text-muted-foreground block mb-1">netMode</label>
                 <select
                   value={netMode}
                   onChange={e => setNetMode(Number(e.target.value))}
-                  className="h-7 w-full rounded-md border bg-background px-2 text-xs"
+                  className="h-8 w-full rounded-lg border bg-background px-2 text-xs"
                 >
                   {NET_MODE_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
                 </select>
@@ -238,17 +237,17 @@ export function ProtoTest() {
           </div>
 
           {/* 查询类 */}
-          <div className="border rounded-lg bg-card overflow-hidden">
+          <div className="border border-slate-200/60 rounded-xl bg-card shadow-card overflow-hidden">
             <button
               onClick={() => toggleGroup('query')}
-              className="w-full flex items-center gap-2 px-3 py-2 text-sm font-medium hover:bg-accent/50"
+              className="w-full flex items-center gap-2.5 px-3 py-2.5 text-sm font-medium hover:bg-accent/50 transition-colors"
             >
               {expandedGroups.query ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
-              <Radio className="h-3.5 w-3.5 text-blue-500" />
+              <Radio className="h-3.5 w-3.5 text-primary" />
               查询类
             </button>
             {expandedGroups.query && (
-              <div className="px-3 pb-2 space-y-1">
+              <div className="px-3 pb-2.5 space-y-1.5">
                 <CmdBtn label="网络模块开关 (1001)" onClick={() => sendCmd(1001)} />
                 <CmdBtn label="入网状态 (1025)" onClick={() => sendCmd(1025, { netMode })} />
                 <CmdBtn label="功率 (1071)" onClick={() => sendCmd(1071, { netMode })} />
@@ -260,21 +259,21 @@ export function ProtoTest() {
           </div>
 
           {/* 设置类 */}
-          <div className="border rounded-lg bg-card overflow-hidden">
+          <div className="border border-slate-200/60 rounded-xl bg-card shadow-card overflow-hidden">
             <button
               onClick={() => toggleGroup('set')}
-              className="w-full flex items-center gap-2 px-3 py-2 text-sm font-medium hover:bg-accent/50"
+              className="w-full flex items-center gap-2.5 px-3 py-2.5 text-sm font-medium hover:bg-accent/50 transition-colors"
             >
               {expandedGroups.set ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
               <Settings className="h-3.5 w-3.5 text-amber-500" />
               设置类
             </button>
             {expandedGroups.set && (
-              <div className="px-3 pb-2 space-y-2">
+              <div className="px-3 pb-2.5 space-y-2">
                 <CmdBtn label={`网络模块开关 (2001) ctrl=${ctrl}`} onClick={() => sendCmd(2001, { netMode, ctrl })} />
                 <div className="flex gap-2 items-center">
                   <span className="text-xs text-muted-foreground">ctrl:</span>
-                  <select value={ctrl} onChange={e => setCtrl(Number(e.target.value))} className="h-6 rounded border bg-background px-1 text-xs">
+                  <select value={ctrl} onChange={e => setCtrl(Number(e.target.value))} className="h-7 rounded-lg border bg-background px-2 text-xs">
                     <option value={0}>关</option>
                     <option value={1}>开</option>
                   </select>
@@ -283,7 +282,7 @@ export function ProtoTest() {
                 <CmdBtn label={`功率 (2043) power=${power}`} onClick={() => sendCmd(2043, { netMode, power })} />
                 <div className="flex gap-2 items-center">
                   <span className="text-xs text-muted-foreground">power:</span>
-                  <select value={power} onChange={e => setPower(Number(e.target.value))} className="h-6 rounded border bg-background px-1 text-xs">
+                  <select value={power} onChange={e => setPower(Number(e.target.value))} className="h-7 rounded-lg border bg-background px-2 text-xs">
                     {POWER_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
                   </select>
                 </div>
@@ -291,20 +290,20 @@ export function ProtoTest() {
                 <CmdBtn label={`频表 (2023) freqNum=${freqNum}`} onClick={() => sendCmd(2023, { netMode, freqNum })} />
                 <div className="flex gap-2 items-center">
                   <span className="text-xs text-muted-foreground">freqNum:</span>
-                  <Input type="number" min={0} max={20} value={freqNum} onChange={e => setFreqNum(Number(e.target.value))} className="h-6 w-16 text-xs" />
+                  <Input type="number" min={0} max={20} value={freqNum} onChange={e => setFreqNum(Number(e.target.value))} className="h-7 w-16 text-xs" />
                 </div>
 
                 <CmdBtn label={`频率 (8001) freq=${frequency}MHz`} onClick={() => sendCmd(8001, { frequency })} />
                 <div className="flex gap-2 items-center">
                   <span className="text-xs text-muted-foreground">frequency:</span>
-                  <Input type="number" min={225} max={512} value={frequency} onChange={e => setFrequency(Number(e.target.value))} className="h-6 w-20 text-xs" />
+                  <Input type="number" min={225} max={512} value={frequency} onChange={e => setFrequency(Number(e.target.value))} className="h-7 w-20 text-xs" />
                   <span className="text-xs text-muted-foreground">MHz</span>
                 </div>
 
                 <CmdBtn label={`速率 (8003) rate=${rate}`} onClick={() => sendCmd(8003, { rate })} />
                 <div className="flex gap-2 items-center">
                   <span className="text-xs text-muted-foreground">rate:</span>
-                  <select value={rate} onChange={e => setRate(Number(e.target.value))} className="h-6 rounded border bg-background px-1 text-xs">
+                  <select value={rate} onChange={e => setRate(Number(e.target.value))} className="h-7 rounded-lg border bg-background px-2 text-xs">
                     {RATE_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
                   </select>
                 </div>
@@ -313,22 +312,22 @@ export function ProtoTest() {
           </div>
 
           {/* 上报类 */}
-          <div className="border rounded-lg bg-card overflow-hidden">
+          <div className="border border-slate-200/60 rounded-xl bg-card shadow-card overflow-hidden">
             <button
               onClick={() => toggleGroup('report')}
-              className="w-full flex items-center gap-2 px-3 py-2 text-sm font-medium hover:bg-accent/50"
+              className="w-full flex items-center gap-2.5 px-3 py-2.5 text-sm font-medium hover:bg-accent/50 transition-colors"
             >
               {expandedGroups.report ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
-              <Wifi className="h-3.5 w-3.5 text-green-500" />
+              <Network className="h-3.5 w-3.5 text-emerald-500" />
               上报类（对接 ns3-controller）
             </button>
             {expandedGroups.report && (
-              <div className="px-3 pb-2 space-y-2">
+              <div className="px-3 pb-2.5 space-y-2">
                 <div className="flex items-center justify-between">
                   <span className="text-xs text-muted-foreground">
                     在线节点: {ns3Nodes.filter(n => n.status === 'online').length}/{ns3Nodes.length}
                   </span>
-                  <Button size="sm" variant="ghost" onClick={fetchNs3Nodes} disabled={ns3Loading} className="h-6 gap-1 text-xs">
+                  <Button size="sm" variant="ghost" onClick={fetchNs3Nodes} disabled={ns3Loading} className="h-7 gap-1 text-xs">
                     <RefreshCw className={cn('h-3 w-3', ns3Loading && 'animate-spin')} />
                     刷新
                   </Button>
@@ -352,100 +351,92 @@ export function ProtoTest() {
           </div>
 
           {/* 上报配置 */}
-          <div className="border rounded-lg bg-card overflow-hidden">
+          <div className="border border-slate-200/60 rounded-xl bg-card shadow-card overflow-hidden">
             <button
               onClick={() => toggleGroup('reportCfg')}
-              className="w-full flex items-center gap-2 px-3 py-2 text-sm font-medium hover:bg-accent/50"
+              className="w-full flex items-center gap-2.5 px-3 py-2.5 text-sm font-medium hover:bg-accent/50 transition-colors"
             >
-            {expandedGroups.reportCfg ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
-            <Settings className="h-3.5 w-3.5 text-purple-500" />
-            上报配置（开关与周期）
-          </button>
-          {expandedGroups.reportCfg && (
-            <div className="px-3 pb-2 space-y-2">
-              {/* 5002 */}
-              <div className="flex items-center gap-2">
-                <span className="text-xs text-muted-foreground w-16">5002:</span>
-                <select
-                  value={report5002Enabled}
-                  onChange={e => setReport5002Enabled(Number(e.target.value))}
-                  className="h-6 rounded border bg-background px-1 text-xs"
-                >
-                  <option value={1}>开</option>
-                  <option value={0}>关</option>
-                </select>
-                <Input
-                  type="number"
-                  min={500}
-                  max={300000}
-                  step={100}
-                  value={report5002Period}
-                  onChange={e => setReport5002Period(Number(e.target.value))}
-                  className="h-6 w-20 text-xs"
-                />
-                <span className="text-xs text-muted-foreground">ms</span>
-              </div>
-              {/* 5006 */}
-              <div className="flex items-center gap-2">
-                <span className="text-xs text-muted-foreground w-16">5006:</span>
-                <select
-                  value={report5006Enabled}
-                  onChange={e => setReport5006Enabled(Number(e.target.value))}
-                  className="h-6 rounded border bg-background px-1 text-xs"
-                >
-                  <option value={1}>开</option>
-                  <option value={0}>关</option>
-                </select>
-                <Input
-                  type="number"
-                  min={500}
-                  max={300000}
-                  step={100}
-                  value={report5006Period}
-                  onChange={e => setReport5006Period(Number(e.target.value))}
-                  className="h-6 w-20 text-xs"
-                />
-                <span className="text-xs text-muted-foreground">ms</span>
-              </div>
-              <div className="flex gap-2 pt-1">
-                <CmdBtn
-                  label="查询配置 (9001)"
-                  onClick={() => sendCmd(9001)}
-                />
-                <CmdBtn
-                  label="应用配置 (9003)"
-                  onClick={() =>
+              {expandedGroups.reportCfg ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
+              <MessageSquare className="h-3.5 w-3.5 text-violet-500" />
+              上报配置（开关与周期）
+            </button>
+            {expandedGroups.reportCfg && (
+              <div className="px-3 pb-2.5 space-y-2">
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-muted-foreground w-16 font-mono">5002:</span>
+                  <select
+                    value={report5002Enabled}
+                    onChange={e => setReport5002Enabled(Number(e.target.value))}
+                    className="h-7 rounded-lg border bg-background px-2 text-xs"
+                  >
+                    <option value={1}>开</option>
+                    <option value={0}>关</option>
+                  </select>
+                  <Input
+                    type="number"
+                    min={500}
+                    max={300000}
+                    step={100}
+                    value={report5002Period}
+                    onChange={e => setReport5002Period(Number(e.target.value))}
+                    className="h-7 w-20 text-xs"
+                  />
+                  <span className="text-xs text-muted-foreground">ms</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-muted-foreground w-16 font-mono">5006:</span>
+                  <select
+                    value={report5006Enabled}
+                    onChange={e => setReport5006Enabled(Number(e.target.value))}
+                    className="h-7 rounded-lg border bg-background px-2 text-xs"
+                  >
+                    <option value={1}>开</option>
+                    <option value={0}>关</option>
+                  </select>
+                  <Input
+                    type="number"
+                    min={500}
+                    max={300000}
+                    step={100}
+                    value={report5006Period}
+                    onChange={e => setReport5006Period(Number(e.target.value))}
+                    className="h-7 w-20 text-xs"
+                  />
+                  <span className="text-xs text-muted-foreground">ms</span>
+                </div>
+                <div className="flex gap-2 pt-1">
+                  <CmdBtn label="查询配置 (9001)" onClick={() => sendCmd(9001)} />
+                  <CmdBtn label="应用配置 (9003)" onClick={() =>
                     sendCmd(9003, {
-                      report5002Enabled,
-                      report5002Period,
-                      report5006Enabled,
-                      report5006Period,
+                      report5002Enabled, report5002Period,
+                      report5006Enabled, report5006Period,
                     })
-                  }
-                />
+                  } />
+                </div>
               </div>
-            </div>
-          )}
+            )}
+          </div>
         </div>
-      </div>
 
-      {/* 右侧：消息日志 + 自定义发送 */}
-        <div className="flex-1 min-w-0 flex flex-col gap-2">
+        {/* 右侧：消息日志 + 自定义发送 */}
+        <div className="flex-1 min-w-0 flex flex-col gap-3">
           {/* 自定义发送 */}
-          <div className="border rounded-lg p-2 bg-card shrink-0">
-            <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1">自定义 JSON</div>
+          <div className="border border-slate-200/60 rounded-xl p-3 bg-card shadow-card shrink-0">
+            <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2 flex items-center gap-1.5">
+              <MessageSquare className="h-3 w-3" /> 自定义 JSON
+            </div>
             <div className="flex gap-2">
               <textarea
                 value={customPayload}
                 onChange={e => setCustomPayload(e.target.value)}
                 placeholder='{"data":{"cmdCode":1001,"extend":"KZ"},...}'
-                className="flex-1 h-16 rounded-md border bg-background px-2 py-1 text-xs font-mono resize-none"
+                className="flex-1 h-16 rounded-lg border bg-background px-3 py-2 text-xs font-mono resize-none focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none transition-all"
               />
               <Button
                 size="sm"
                 onClick={() => { send(customPayload); setCustomPayload(''); }}
                 disabled={!connected || !customPayload.trim()}
-                className="h-16 gap-1"
+                className="h-16 gap-1.5"
               >
                 <Send className="h-3.5 w-3.5" />
                 发送
@@ -454,40 +445,43 @@ export function ProtoTest() {
           </div>
 
           {/* 消息日志 */}
-          <div className="flex-1 min-h-0 border rounded-lg bg-card flex flex-col overflow-hidden">
-            <div className="flex items-center justify-between px-3 py-2 border-b shrink-0">
+          <div className="flex-1 min-h-0 border border-slate-200/60 rounded-xl bg-card shadow-card flex flex-col overflow-hidden">
+            <div className="flex items-center justify-between px-4 py-3 border-b shrink-0">
               <div className="flex items-center gap-2">
                 <Clock className="h-3.5 w-3.5 text-muted-foreground" />
-                <span className="text-sm font-medium">消息日志</span>
-                <span className="text-xs text-muted-foreground">({messages.length})</span>
+                <span className="text-sm font-semibold">消息日志</span>
+                <Badge variant="secondary" className="text-[10px] px-1.5 py-0 h-4 font-mono">{messages.length}</Badge>
               </div>
-              <Button size="sm" variant="ghost" onClick={clearMessages} className="h-7 gap-1 text-xs">
+              <Button size="sm" variant="ghost" onClick={clearMessages} className="h-7 gap-1.5 text-xs">
                 <Trash2 className="h-3 w-3" />
                 清空
               </Button>
             </div>
-            <div ref={scrollRef} className="flex-1 overflow-auto p-2 space-y-1 font-mono text-xs">
+            <div ref={scrollRef} className="flex-1 overflow-auto p-3 space-y-1.5 font-mono text-xs">
               {messages.length === 0 && (
-                <div className="text-muted-foreground text-center py-8">暂无消息，连接后发送命令</div>
+                <div className="flex flex-col items-center justify-center text-muted-foreground py-16">
+                  <Wifi className="h-8 w-8 mb-3 opacity-20" />
+                  <p>暂无消息，连接后发送命令</p>
+                </div>
               )}
               {messages.map(msg => (
                 <div
                   key={msg.id}
                   className={cn(
-                    'rounded px-2 py-1 border-l-2',
+                    'rounded-lg px-3 py-2 border-l-2 transition-colors',
                     msg.direction === 'sent'
-                      ? 'bg-blue-50 border-l-blue-500 dark:bg-blue-950/30'
-                      : 'bg-green-50 border-l-green-500 dark:bg-green-950/30'
+                      ? 'bg-blue-50/70 border-l-blue-500 dark:bg-blue-950/30'
+                      : 'bg-emerald-50/70 border-l-emerald-500 dark:bg-emerald-950/30'
                   )}
                 >
-                  <div className="flex items-center gap-2 mb-0.5">
+                  <div className="flex items-center gap-2 mb-1">
                     <span className={cn(
-                      'text-[10px] font-bold px-1 rounded',
-                      msg.direction === 'sent' ? 'bg-blue-200 text-blue-800' : 'bg-green-200 text-green-800'
+                      'text-[10px] font-bold px-1.5 py-0.5 rounded-md',
+                      msg.direction === 'sent' ? 'bg-blue-200 text-blue-800' : 'bg-emerald-200 text-emerald-800'
                     )}>
                       {msg.direction === 'sent' ? '→ 发送' : '← 接收'}
                     </span>
-                    <span className="text-[10px] text-muted-foreground">{msg.timestamp}</span>
+                    <span className="text-[10px] text-muted-foreground font-mono">{msg.timestamp}</span>
                   </div>
                   <pre className="whitespace-pre-wrap break-all text-[11px] leading-relaxed">{msg.pretty || msg.payload}</pre>
                 </div>
@@ -506,9 +500,9 @@ function CmdBtn({ label, onClick }: { label: string; onClick: () => void }) {
       size="sm"
       variant="outline"
       onClick={onClick}
-      className="w-full h-7 justify-start text-xs gap-1"
+      className="w-full h-8 justify-start text-xs gap-1.5 hover:bg-primary/5 hover:border-primary/30 transition-colors"
     >
-      <Send className="h-3 w-3 shrink-0" />
+      <Send className="h-3 w-3 shrink-0 text-primary" />
       {label}
     </Button>
   );

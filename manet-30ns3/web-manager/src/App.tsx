@@ -16,7 +16,7 @@ import {
 import './App.css';
 
 // 构建时间戳：每次修改后更新，确保 Vite 内容哈希变化，避免浏览器缓存旧版本
-const BUILD_TIME = '2026-05-07-1334';
+const BUILD_TIME = '2026-05-08-0015';
 void BUILD_TIME;
 
 const NAV_ITEMS = [
@@ -64,7 +64,6 @@ function App() {
     }
     addLog('[ui] 启动 iperf3 测试...');
     try {
-      // node-0 (server 角色) 已由 node-entrypoint.py 自动启动 iperf3 server，无需再启动
       const clientNode = Math.max(1, Math.floor(Math.random() * config.nNodes));
       const res = await fetch(`/api/nodes/${clientNode}/exec`, {
         method: 'POST',
@@ -100,7 +99,6 @@ function App() {
       addLog('[traceroute] 节点不足，无法追踪路径');
       return;
     }
-    // 选择两个不同的节点;尽量挑距离较远的一对以增加多跳概率
     const liveIds = nodes.map(n => n.id);
     const srcId = liveIds[Math.floor(Math.random() * liveIds.length)];
     let dstId = liveIds[Math.floor(Math.random() * liveIds.length)];
@@ -109,7 +107,6 @@ function App() {
     }
     addLog(`[traceroute] 节点${srcId} → 节点${dstId} 路径分析中...`);
     try {
-      // 先查 ns-3 邻居拓扑给出的多跳路径(基于 range_target_m 的几何邻居图)
       const pathRes = await fetch(`/api/sim/path?src=${srcId}&dst=${dstId}`);
       if (pathRes.ok) {
         const pdata = await pathRes.json();
@@ -125,8 +122,6 @@ function App() {
       } else {
         addLog(`[traceroute] /api/sim/path 失败: ${pathRes.status}`);
       }
-      // 同时跑容器内 traceroute 作为补充(UseBridge 模式下 L2 mesh 多跳对 L3 透明,
-      // 通常只显示最终目的地这一跳;两路输出对照能让用户看到 L3 与 mesh 的差异)
       const targetIp = `192.168.100.${10 + dstId}`;
       const res = await fetch(`/api/nodes/${srcId}/exec`, {
         method: 'POST',
@@ -157,19 +152,21 @@ function App() {
 
   return (
     <div className="h-screen bg-background flex overflow-hidden">
-      {/* 左侧边栏 */}
-      <aside className="w-52 border-r bg-card flex flex-col shrink-0">
-        <div className="h-14 border-b flex items-center px-4 gap-3 shrink-0">
-          <div className="h-8 w-8 rounded-lg bg-primary flex items-center justify-center shrink-0">
-            <Network className="h-4 w-4 text-primary-foreground" />
+      {/* 左侧边栏 - Glass morphism effect */}
+      <aside className="w-56 border-r bg-card/80 backdrop-blur-xl flex flex-col shrink-0 shadow-sm">
+        {/* Logo area */}
+        <div className="h-16 border-b flex items-center px-5 gap-3 shrink-0">
+          <div className="h-9 w-9 rounded-xl bg-gradient-to-br from-primary to-cyan-400 flex items-center justify-center shrink-0 shadow-glow">
+            <Network className="h-4 w-4 text-white" />
           </div>
           <div className="overflow-hidden">
-            <h1 className="text-sm font-bold leading-tight truncate">MANET</h1>
-            <p className="text-[10px] text-muted-foreground truncate">仿真控制面板</p>
+            <h1 className="text-sm font-bold leading-tight truncate tracking-tight">MANET</h1>
+            <p className="text-[11px] text-muted-foreground truncate font-medium">仿真控制面板</p>
           </div>
         </div>
 
-        <nav className="flex-1 p-1.5 space-y-0.5 overflow-y-auto">
+        {/* Navigation */}
+        <nav className="flex-1 p-2 space-y-0.5 overflow-y-auto">
           {NAV_ITEMS.map(item => {
             const Icon = item.icon;
             const isActive = activePage === item.key;
@@ -178,90 +175,101 @@ function App() {
                 key={item.key}
                 onClick={() => setActivePage(item.key)}
                 className={cn(
-                  'w-full flex items-center gap-3 px-3 py-2 rounded-md text-sm transition-colors',
+                  'w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-200',
                   isActive
-                    ? 'bg-primary text-primary-foreground'
+                    ? 'bg-primary text-primary-foreground shadow-glow'
                     : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground'
                 )}
               >
-                <Icon className="h-4 w-4 shrink-0" />
+                <Icon className={cn('h-4 w-4 shrink-0', isActive && 'text-primary-foreground')} />
                 <span>{item.label}</span>
+                {isActive && (
+                  <div className="ml-auto h-1.5 w-1.5 rounded-full bg-primary-foreground/70" />
+                )}
               </button>
             );
           })}
         </nav>
 
-        <div className="p-2 border-t shrink-0">
-          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+        {/* Bottom status */}
+        <div className="p-3 border-t shrink-0">
+          <div className="flex items-center gap-2.5 text-xs">
             <div className={cn(
-              'h-2 w-2 rounded-full',
-              status.running ? 'bg-green-500 animate-pulse' : 'bg-red-500'
+              'h-2.5 w-2.5 rounded-full ring-2 ring-offset-1 ring-offset-background transition-all duration-300',
+              status.running ? 'bg-success ring-success/30 status-glow-green animate-pulse-soft' : 'bg-destructive ring-destructive/30 status-glow-red'
             )} />
-            <span>{status.running ? '运行中' : '空闲'}</span>
+            <span className="font-medium text-foreground">
+              {status.running ? '仿真运行中' : '系统空闲'}
+            </span>
+            {status.running && (
+              <span className="ml-auto font-mono text-[11px] text-muted-foreground tabular-nums">
+                {elapsedMin}:{elapsedSec.toString().padStart(2, '0')} / {totalMin}:{totalSec.toString().padStart(2, '0')}
+              </span>
+            )}
           </div>
         </div>
       </aside>
 
       {/* 主内容区 */}
-      <main className="flex-1 min-w-0 flex flex-col">
-        {/* 顶部工具栏：标题 + 仿真控制 + 快捷操作 */}
-        <header className="border-b bg-card shrink-0">
-          <div className="px-3 py-2 flex items-center gap-3">
-            <h2 className="text-base font-semibold shrink-0">
+      <main className="flex-1 min-w-0 flex flex-col bg-dot-pattern">
+        {/* 顶部工具栏 */}
+        <header className="border-b bg-card/70 backdrop-blur-lg shrink-0 shadow-xs">
+          <div className="px-4 py-2.5 flex items-center gap-4">
+            <h2 className="text-base font-semibold shrink-0 tracking-tight">
               {NAV_ITEMS.find(n => n.key === activePage)?.label}
             </h2>
 
-            <div className="flex-1 flex items-center justify-end gap-3 flex-wrap">
-              {/* 仿真状态 */}
-              <div className="flex items-center gap-2 shrink-0">
+            <div className="flex-1 flex items-center justify-end gap-2 flex-wrap">
+              {/* Status badge */}
+              <div className="flex items-center gap-2 shrink-0 px-3 py-1 rounded-full bg-muted/70">
                 <div className={cn(
-                  'h-2.5 w-2.5 rounded-full',
-                  status.running ? 'bg-green-500 animate-pulse' : 'bg-red-500'
+                  'h-2 w-2 rounded-full',
+                  status.running ? 'bg-success animate-pulse-soft' : 'bg-destructive'
                 )} />
                 <span className="text-sm font-medium">
                   {status.running ? '运行中' : '已停止'}
                 </span>
                 {status.running && (
-                  <span className="text-xs text-muted-foreground font-mono">
+                  <span className="text-xs text-muted-foreground font-mono tabular-nums">
                     {elapsedMin}:{elapsedSec.toString().padStart(2, '0')} / {totalMin}:{totalSec.toString().padStart(2, '0')}
                   </span>
                 )}
               </div>
 
-              <div className="h-4 w-px bg-border shrink-0" />
+              <div className="h-5 w-px bg-border shrink-0" />
 
-              {/* 核心控制 */}
-              <Button size="sm" onClick={handleStart} disabled={status.running} className="h-8 gap-1">
+              {/* Core controls */}
+              <Button size="sm" onClick={handleStart} disabled={status.running} className="h-8 gap-1.5 bg-success hover:bg-success/90 text-success-foreground">
                 <Play className="h-3.5 w-3.5" />
-                <span className="hidden sm:inline">启动</span>
+                <span className="hidden sm:inline font-medium">启动</span>
               </Button>
-              <Button size="sm" variant="destructive" onClick={stopSimulation} disabled={!status.running} className="h-8 gap-1">
+              <Button size="sm" variant="destructive" onClick={stopSimulation} disabled={!status.running} className="h-8 gap-1.5">
                 <Square className="h-3.5 w-3.5" />
-                <span className="hidden sm:inline">停止</span>
+                <span className="hidden sm:inline font-medium">停止</span>
               </Button>
 
-              <div className="h-4 w-px bg-border shrink-0" />
+              <div className="h-5 w-px bg-border shrink-0" />
 
-              {/* 快捷操作 */}
-              <Button size="sm" variant="outline" onClick={handleRestart} disabled={false} className="h-8 gap-1">
+              {/* Quick actions */}
+              <Button size="sm" variant="outline" onClick={handleRestart} disabled={false} className="h-8 gap-1.5">
                 <RotateCw className="h-3.5 w-3.5" />
                 <span className="hidden sm:inline">重启</span>
               </Button>
-              <Button size="sm" variant="outline" onClick={handleIperf3} disabled={!status.running} className="h-8 gap-1">
+              <Button size="sm" variant="outline" onClick={handleIperf3} disabled={!status.running} className="h-8 gap-1.5">
                 <Wifi className="h-3.5 w-3.5" />
                 <span className="hidden sm:inline">iperf3</span>
               </Button>
-              <Button size="sm" variant="outline" onClick={handleTraceroute} disabled={!status.running} className="h-8 gap-1">
+              <Button size="sm" variant="outline" onClick={handleTraceroute} disabled={!status.running} className="h-8 gap-1.5">
                 <Route className="h-3.5 w-3.5" />
                 <span className="hidden sm:inline">路由追踪</span>
               </Button>
 
               {saveStatus && saveStatus !== 'idle' && activePage === 'config' && (
                 <span className={cn(
-                  'text-xs font-medium shrink-0',
-                  saveStatus === 'saving' && 'text-amber-600',
-                  saveStatus === 'saved' && 'text-green-600',
-                  saveStatus === 'error' && 'text-red-600'
+                  'text-xs font-medium shrink-0 px-2 py-0.5 rounded-full',
+                  saveStatus === 'saving' && 'text-amber-700 bg-amber-100',
+                  saveStatus === 'saved' && 'text-green-700 bg-green-100',
+                  saveStatus === 'error' && 'text-red-700 bg-red-100'
                 )}>
                   {saveStatus === 'saving' ? '保存中...' :
                    saveStatus === 'saved' ? '已保存' : '保存失败'}
@@ -274,21 +282,21 @@ function App() {
         {/* 页面内容 */}
         <div className="flex-1 overflow-auto">
           {activePage === 'dashboard' && (
-            <div className="h-full flex flex-col overflow-hidden p-2 space-y-2">
+            <div className="h-full flex flex-col overflow-hidden p-3 space-y-3 animate-fade-in">
               <Dashboard
-  status={status}
-  flows={flows}
-  nodes={nodes}
-  config={{
-    beaconInterval: config.beaconInterval,
-    ssid: config.ssid,
-    standard: config.standard,
-    dataRate: config.dataRate,
-    txPowerStart: config.txPowerStart,
-    frequencyMhz: config.frequencyMhz,
-    macMode: config.macMode,
-  }}
-/>
+                status={status}
+                flows={flows}
+                nodes={nodes}
+                config={{
+                  beaconInterval: config.beaconInterval,
+                  ssid: config.ssid,
+                  standard: config.standard,
+                  dataRate: config.dataRate,
+                  txPowerStart: config.txPowerStart,
+                  frequencyMhz: config.frequencyMhz,
+                  macMode: config.macMode,
+                }}
+              />
               <div className="flex-1 min-h-0 overflow-auto">
                 <TopologyView nodes={nodes} flows={flows} running={status.running} compact sim={sim} />
               </div>
@@ -296,7 +304,7 @@ function App() {
           )}
 
           {activePage === 'config' && (
-            <div className="h-full overflow-auto p-3">
+            <div className="h-full overflow-auto p-4 animate-fade-in">
               <ConfigPanel
                 config={config}
                 activePreset={activePreset}
@@ -312,19 +320,19 @@ function App() {
           )}
 
           {activePage === 'dynamic' && (
-            <div className="h-full overflow-auto p-3">
+            <div className="h-full overflow-auto p-4 animate-fade-in">
               <DynamicControl status={status} nodes={nodes} config={config} env={env} sim={sim} />
             </div>
           )}
 
           {activePage === 'proto' && (
-            <div className="h-full overflow-hidden">
+            <div className="h-full overflow-hidden animate-fade-in">
               <ProtoTest />
             </div>
           )}
 
           {activePage === 'logs' && (
-            <div className="h-full overflow-auto p-3">
+            <div className="h-full overflow-auto p-4 animate-fade-in">
               <LogView logs={logs} onClear={handleClearLogs} />
             </div>
           )}

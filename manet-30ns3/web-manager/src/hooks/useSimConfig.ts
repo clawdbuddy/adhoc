@@ -33,7 +33,7 @@ const FALLBACK_CONFIG: SimConfig = {
 
 // 按钮显示名映射（后端 /api/sim/presets 只返回扁平 SimConfig，没有 name 字段）
 export const PRESET_NAMES: Record<string, string> = {
-  default: '默认 / AdHoc',
+  default: '默认 / Mesh',
   urban: '城市密集',
   rural: '乡村 / 开阔地带',
   debug: '调试 / 最小配置',

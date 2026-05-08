@@ -5,7 +5,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import type { NodeStatus, FlowStats } from '@/types/config';
 import {
   Wifi, WifiOff, AlertTriangle,
-  Move, Activity, Grid3x3,
+  Move, Activity, Grid3x3, Radio,
 } from 'lucide-react';
 import { useDynamicControl } from '@/hooks/useDynamicControl';
 
@@ -45,15 +45,15 @@ const NODE_RADIUS = 12;
 const HIT_RADIUS = 16;
 
 function StatusIcon({ status }: { status: string }) {
-  if (status === 'online') return <Wifi className="h-4 w-4 text-green-500" />;
-  if (status === 'busy') return <AlertTriangle className="h-4 w-4 text-yellow-500" />;
-  return <WifiOff className="h-4 w-4 text-red-500" />;
+  if (status === 'online') return <Wifi className="h-4 w-4 text-success" />;
+  if (status === 'busy') return <AlertTriangle className="h-4 w-4 text-warning" />;
+  return <WifiOff className="h-4 w-4 text-destructive" />;
 }
 
 function StatusBadge({ status }: { status: string }) {
-  if (status === 'online') return <Badge variant="outline" className="text-green-600 border-green-600 text-xs">在线</Badge>;
-  if (status === 'busy') return <Badge variant="outline" className="text-yellow-600 border-yellow-600 text-xs">忙碌</Badge>;
-  return <Badge variant="outline" className="text-red-600 border-red-600 text-xs">离线</Badge>;
+  if (status === 'online') return <Badge variant="outline" className="text-success border-success/40 text-xs font-medium">在线</Badge>;
+  if (status === 'busy') return <Badge variant="outline" className="text-warning border-warning/40 text-xs font-medium">忙碌</Badge>;
+  return <Badge variant="outline" className="text-destructive border-destructive/40 text-xs font-medium">离线</Badge>;
 }
 
 function computeGeom(canvas: HTMLCanvasElement, nodes: NodeStatus[], drag?: DragState | null): Geom {
@@ -97,10 +97,9 @@ function applyDragOverride(nodes: NodeStatus[], drag: DragState | null): NodeSta
   return nodes.map(n => n.id === drag.nodeId ? { ...n, x: drag.simX, y: drag.simY } : n);
 }
 
-// 节点对流量矩阵单元格颜色:吞吐 0..6 Mbps → 透明度 0..0.85,色相紫色
 function reachabilityCellStyle(reachable: boolean): { background: string; color: string } {
   if (reachable) {
-    return { background: 'rgba(34, 197, 94, 0.15)', color: '#166534' };
+    return { background: 'rgba(34, 197, 94, 0.12)', color: '#166534' };
   }
   return { background: 'transparent', color: '#9ca3af' };
 }
@@ -126,11 +125,11 @@ function drawScene(
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.clearRect(0, 0, g.w, g.h);
 
-  // Grid + axis labels
-  ctx.strokeStyle = '#e5e7eb';
+  // Subtle grid background
+  ctx.strokeStyle = '#f1f5f9';
   ctx.lineWidth = 1;
   const gridStepPx = 50;
-  ctx.fillStyle = '#9ca3af';
+  ctx.fillStyle = '#94a3b8';
   ctx.font = '9px sans-serif';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'top';
@@ -147,12 +146,12 @@ function drawScene(
     if (simY >= 0) ctx.fillText(`${simY}m`, 4, cy);
   }
 
-  // Scale bar (bottom-right)
+  // Scale bar
   const scaleBarMeters = Math.pow(10, Math.floor(Math.log10(100 / g.scale)));
   const scaleBarPx = scaleBarMeters * g.scale;
   const sbX = g.w - scaleBarPx - 12;
   const sbY = g.h - 28;
-  ctx.strokeStyle = '#374151';
+  ctx.strokeStyle = '#475569';
   ctx.lineWidth = 2;
   ctx.beginPath();
   ctx.moveTo(sbX, sbY);
@@ -166,7 +165,7 @@ function drawScene(
   ctx.moveTo(sbX + scaleBarPx, sbY - 4);
   ctx.lineTo(sbX + scaleBarPx, sbY + 4);
   ctx.stroke();
-  ctx.fillStyle = '#374151';
+  ctx.fillStyle = '#475569';
   ctx.font = '10px sans-serif';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'bottom';
@@ -186,7 +185,7 @@ function drawScene(
     });
   });
 
-  // Flow arrows (animated)
+  // Flow arrows
   const ipToNode = new Map<string, NodeStatus>();
   view.forEach(n => ipToNode.set(n.ip, n));
   const activeFlows = flows.filter(f => f.txPackets > 0);
@@ -201,7 +200,6 @@ function drawScene(
     const dist = Math.hypot(dxv, dyv);
     if (dist < NODE_RADIUS * 2) return;
 
-    // 把箭头起止点缩短到节点圆边缘外
     const ux = dxv / dist;
     const uy = dyv / dist;
     const sx2 = sx + ux * (NODE_RADIUS + 2);
@@ -209,7 +207,6 @@ function drawScene(
     const dx2 = dxc - ux * (NODE_RADIUS + 4);
     const dy2 = dyc - uy * (NODE_RADIUS + 4);
 
-    // 吞吐 → 线宽 + 颜色透明度
     const tput = Math.max(0, flow.throughput);
     const width = Math.max(1.5, Math.min(6, 1.5 + Math.log10(Math.max(0.01, tput) + 1) * 2.5));
     const alpha = Math.min(0.9, 0.45 + tput / 50);
@@ -225,7 +222,6 @@ function drawScene(
     ctx.stroke();
     ctx.setLineDash([]);
 
-    // 箭头头
     const angle = Math.atan2(dyv, dxv);
     const headLen = 10;
     ctx.beginPath();
@@ -241,14 +237,13 @@ function drawScene(
     ctx.closePath();
     ctx.fill();
 
-    // 中点 Mbps 标签
     if (tput > 0.05) {
       const mx = (sx2 + dx2) / 2;
       const my = (sy2 + dy2) / 2;
       const label = tput >= 1 ? `${tput.toFixed(2)} Mbps` : `${(tput * 1000).toFixed(0)} kbps`;
       ctx.font = '10px sans-serif';
       const tw = ctx.measureText(label).width;
-      ctx.fillStyle = 'rgba(255, 255, 255, 0.85)';
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
       ctx.fillRect(mx - tw / 2 - 4, my - 12, tw + 8, 14);
       ctx.fillStyle = '#7c3aed';
       ctx.textAlign = 'center';
@@ -292,7 +287,6 @@ function drawScene(
     ctx.fillText(node.role.charAt(0).toUpperCase(), nx, ny + r + 8);
   });
 
-  // 拖拽中的浮动 (x, y) 提示
   if (drag) {
     const [nx, ny] = simToCanvas(g, drag.simX, drag.simY);
     const label = `(${drag.simX.toFixed(0)}, ${drag.simY.toFixed(0)})m`;
@@ -314,13 +308,11 @@ export function TopologyView({ nodes, flows, running, compact, sim }: TopologyVi
   const [hoverId, setHoverId] = useState<number | null>(null);
   const [toast, setToast] = useState<string | null>(null);
 
-  // Latest props in refs so the single RAF loop always reads fresh values
   const propsRef = useRef({ nodes, flows, drag, hoverId });
   useEffect(() => {
     propsRef.current = { nodes, flows, drag, hoverId };
   }, [nodes, flows, drag, hoverId]);
 
-  // Single RAF render loop — always running so flow dashes animate continuously
   useEffect(() => {
     let phase = 0;
     let raf = 0;
@@ -337,7 +329,6 @@ export function TopologyView({ nodes, flows, running, compact, sim }: TopologyVi
     return () => cancelAnimationFrame(raf);
   }, []);
 
-  // 鼠标坐标转 canvas 内 CSS pixel
   const eventCoords = (e: React.MouseEvent<HTMLCanvasElement>) => {
     const canvas = canvasRef.current;
     if (!canvas) return [0, 0] as [number, number];
@@ -400,22 +391,27 @@ export function TopologyView({ nodes, flows, running, compact, sim }: TopologyVi
   return (
     <div className="space-y-3">
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
-        <Card className="lg:col-span-2">
-          <CardHeader className="pb-2 py-2">
+        <Card className="lg:col-span-2 border-slate-200/60 shadow-card">
+          <CardHeader className="pb-2 py-3">
             <div className="flex items-center justify-between">
               <div>
-                <CardTitle className="text-sm">网络拓扑</CardTitle>
-                <p className="text-xs text-muted-foreground">
+                <CardTitle className="text-sm font-semibold flex items-center gap-2">
+                  <div className="h-7 w-7 rounded-lg bg-primary/10 flex items-center justify-center">
+                    <Radio className="h-3.5 w-3.5 text-primary" />
+                  </div>
+                  网络拓扑
+                </CardTitle>
+                <p className="text-xs text-muted-foreground mt-0.5">
                   {running ? '拖拽节点重新定位 · 数据流箭头按吞吐着色' : '仿真未运行 · 拖拽功能已禁用'}
                 </p>
               </div>
               <div className="flex items-center gap-2 text-xs">
                 {running && (
-                  <Badge variant="outline" className="gap-1 h-5 px-1">
+                  <Badge variant="outline" className="gap-1 h-6 px-2 font-medium">
                     <Move className="h-3 w-3" /> 可拖拽
                   </Badge>
                 )}
-                <Badge variant="outline" className="gap-1 text-purple-600 border-purple-300 h-5 px-1">
+                <Badge variant="outline" className="gap-1 text-purple-600 border-purple-300/60 h-6 px-2 font-medium">
                   <Activity className="h-3 w-3" /> {activeFlowCount} 活跃流
                 </Badge>
               </div>
@@ -429,46 +425,51 @@ export function TopologyView({ nodes, flows, running, compact, sim }: TopologyVi
                 onMouseMove={onMouseMove}
                 onMouseUp={onMouseUp}
                 onMouseLeave={onMouseLeave}
-                style={{ width: '100%', height: compact ? '280px' : '440px', borderRadius: '8px', background: '#f9fafb', display: 'block' }}
+                style={{ width: '100%', height: compact ? '280px' : '440px', borderRadius: '12px', background: '#f8fafc', display: 'block' }}
                 className={cursorClass}
               />
               {toast && (
-                <div className="absolute top-2 right-2 px-3 py-1.5 rounded-md bg-blue-600 text-white text-xs shadow-md">
+                <div className="absolute top-3 right-3 px-3 py-1.5 rounded-lg bg-primary text-white text-xs shadow-glow animate-scale-in font-medium">
                   {toast}
                 </div>
               )}
             </div>
-            <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 mt-1.5 text-[10px] text-muted-foreground">
-              <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-green-500 inline-block" /> 在线</span>
-              <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-yellow-500 inline-block" /> 忙碌</span>
-              <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-red-500 inline-block" /> 离线</span>
-              <span className="flex items-center gap-1"><span className="w-6 h-0.5 bg-blue-300 inline-block" /> 邻居链路</span>
-              <span className="flex items-center gap-1"><span className="w-6 h-0.5 bg-purple-500 inline-block" /> 数据流</span>
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mt-2 text-[11px] text-muted-foreground">
+              <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-success inline-block shadow-sm" /> 在线</span>
+              <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-warning inline-block shadow-sm" /> 忙碌</span>
+              <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-destructive inline-block shadow-sm" /> 离线</span>
+              <span className="flex items-center gap-1.5"><span className="w-6 h-0.5 bg-blue-300 inline-block rounded-full" /> 邻居链路</span>
+              <span className="flex items-center gap-1.5"><span className="w-6 h-0.5 bg-purple-500 inline-block rounded-full" /> 数据流</span>
             </div>
           </CardContent>
         </Card>
 
-        <Card>
-          <CardHeader className="pb-2 py-2">
-            <CardTitle className="text-sm">节点状态</CardTitle>
+        <Card className="border-slate-200/60 shadow-card">
+          <CardHeader className="pb-2 py-3">
+            <CardTitle className="text-sm font-semibold flex items-center gap-2">
+              <div className="h-7 w-7 rounded-lg bg-emerald-500/10 flex items-center justify-center">
+                <Wifi className="h-3.5 w-3.5 text-emerald-500" />
+              </div>
+              节点状态
+            </CardTitle>
           </CardHeader>
           <CardContent className="p-0">
             <ScrollArea className={compact ? 'h-[280px]' : 'h-[440px]'}>
-              <div className="space-y-1 px-3 pb-3">
+              <div className="space-y-0.5 px-3 pb-3">
                 {nodes.map(node => (
-                  <div key={node.id} className="flex items-center gap-2 py-1 border-b border-gray-100 last:border-0">
+                  <div key={node.id} className="flex items-center gap-2.5 py-2 px-2 rounded-lg hover:bg-muted/50 transition-colors border-b border-border/50 last:border-0">
                     <StatusIcon status={node.status} />
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-1.5">
-                        <span className="font-mono text-xs font-semibold">N{node.id}</span>
+                        <span className="font-mono text-xs font-bold">N{node.id}</span>
                         <StatusBadge status={node.status} />
                         {node.role !== 'client' && (
-                          <Badge variant="secondary" className="text-[10px] px-1 py-0 h-4">{node.role}</Badge>
+                          <Badge variant="secondary" className="text-[10px] px-1 py-0 h-4 font-medium">{node.role}</Badge>
                         )}
                       </div>
-                      <div className="text-[10px] text-muted-foreground font-mono">{node.ip}</div>
+                      <div className="text-[10px] text-muted-foreground font-mono mt-0.5">{node.ip}</div>
                     </div>
-                    <div className="text-right text-[10px] text-muted-foreground">
+                    <div className="text-right text-[10px] text-muted-foreground font-mono tabular-nums">
                       <div>Rx {(node.rxPackets / 1000).toFixed(1)}k</div>
                       <div>Tx {(node.txPackets / 1000).toFixed(1)}k</div>
                     </div>
@@ -480,15 +481,17 @@ export function TopologyView({ nodes, flows, running, compact, sim }: TopologyVi
         </Card>
       </div>
 
-      {/* 节点对可达性矩阵 NxN: 行=源,列=目标,单元格=距离+可达状态 */}
-      <Card>
-        <CardHeader className="pb-2">
+      {/* Reachability Matrix */}
+      <Card className="border-slate-200/60 shadow-card">
+        <CardHeader className="pb-3">
           <div className="flex items-center justify-between">
-            <CardTitle className="text-base flex items-center gap-2">
-              <Grid3x3 className="h-4 w-4" />
+            <CardTitle className="text-base flex items-center gap-2 font-semibold">
+              <div className="h-8 w-8 rounded-lg bg-violet-500/10 flex items-center justify-center">
+                <Grid3x3 className="h-4 w-4 text-violet-500" />
+              </div>
               节点可达性矩阵
             </CardTitle>
-            <Badge variant="outline" className="text-xs">
+            <Badge variant="outline" className="text-xs font-medium">
               {nodes.length} 节点
             </Badge>
           </div>
@@ -502,13 +505,13 @@ export function TopologyView({ nodes, flows, running, compact, sim }: TopologyVi
                 <table className="text-xs font-mono border-separate border-spacing-0 w-full">
                   <thead>
                     <tr>
-                      <th className="sticky top-0 left-0 z-20 bg-muted px-2 py-1 border border-gray-200 text-muted-foreground font-normal">
+                      <th className="sticky top-0 left-0 z-20 bg-muted px-2 py-1.5 border border-border text-muted-foreground font-medium rounded-tl-lg">
                         ↓src \ dst→
                       </th>
                       {nodes.map(d => (
                         <th
                           key={d.id}
-                          className="sticky top-0 z-10 bg-muted px-2 py-1 border border-gray-200 text-center font-semibold"
+                          className="sticky top-0 z-10 bg-muted px-2 py-1.5 border border-border text-center font-semibold"
                         >
                           N{d.id}
                         </th>
@@ -520,7 +523,7 @@ export function TopologyView({ nodes, flows, running, compact, sim }: TopologyVi
                       const neighborSet = new Set(s.neighbors ?? []);
                       return (
                         <tr key={s.id}>
-                          <th className="sticky left-0 z-10 bg-muted px-2 py-1 border border-gray-200 text-left font-semibold">
+                          <th className="sticky left-0 z-10 bg-muted px-2 py-1.5 border border-border text-left font-semibold">
                             N{s.id}
                           </th>
                           {nodes.map(d => {
@@ -529,7 +532,7 @@ export function TopologyView({ nodes, flows, running, compact, sim }: TopologyVi
                                 <td
                                   key={d.id}
                                   title={`N${s.id}\nRX: ${s.rxPackets.toLocaleString()} pkts\nTX: ${s.txPackets.toLocaleString()} pkts`}
-                                  className="px-2 py-1 border border-gray-200 text-center text-muted-foreground"
+                                  className="px-2 py-1.5 border border-border text-center text-muted-foreground"
                                 >
                                   —
                                 </td>
@@ -541,7 +544,7 @@ export function TopologyView({ nodes, flows, running, compact, sim }: TopologyVi
                               <td
                                 key={d.id}
                                 title={`N${s.id} → N${d.id}\n距离: ${dist.toFixed(0)} m\n${reachable ? '可达 (在通信范围内)' : '不可达 (超出通信范围)'}`}
-                                className="px-2 py-1 border border-gray-200 text-center font-mono"
+                                className="px-2 py-1.5 border border-border text-center font-mono transition-colors"
                                 style={reachabilityCellStyle(reachable)}
                               >
                                 {dist >= 1000 ? `${(dist / 1000).toFixed(1)}km` : `${dist.toFixed(0)}m`}
@@ -556,33 +559,33 @@ export function TopologyView({ nodes, flows, running, compact, sim }: TopologyVi
               </div>
             </ScrollArea>
           )}
-          <div className="flex flex-wrap gap-x-4 gap-y-1 mt-2 text-xs text-muted-foreground">
-            <span className="flex items-center gap-1"><span className="w-3 h-3 inline-block rounded-sm" style={{ background: 'rgba(34,197,94,0.15)' }} /> 可达</span>
-            <span className="flex items-center gap-1"><span className="w-3 h-3 inline-block rounded-sm border border-gray-200" /> 不可达</span>
-            <span className="flex items-center gap-1">— 对角线 (节点自身 RX/TX hover 可看)</span>
+          <div className="flex flex-wrap gap-x-5 gap-y-1 mt-3 text-xs text-muted-foreground">
+            <span className="flex items-center gap-1.5"><span className="w-3 h-3 inline-block rounded-sm" style={{ background: 'rgba(34,197,94,0.12)' }} /> 可达</span>
+            <span className="flex items-center gap-1.5"><span className="w-3 h-3 inline-block rounded-sm border border-border" /> 不可达</span>
+            <span className="flex items-center gap-1.5">— 对角线</span>
           </div>
         </CardContent>
       </Card>
 
       {flows.length > 0 && (
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-base">流统计</CardTitle>
+        <Card className="border-slate-200/60 shadow-card">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base font-semibold">流统计</CardTitle>
           </CardHeader>
           <CardContent>
             <ScrollArea className="h-[250px]">
-              <div className="space-y-2">
+              <div className="space-y-1">
                 {flows.slice(0, 20).map(flow => (
-                  <div key={flow.flowId} className="flex items-center gap-3 py-2 border-b border-gray-100 text-sm">
-                    <span className="font-mono text-xs w-12">Flow-{flow.flowId}</span>
-                    <span className="font-mono text-xs text-blue-600">{flow.source}</span>
-                    <span className="text-muted-foreground">{'->'}</span>
-                    <span className="font-mono text-xs text-green-600">{flow.destination}</span>
+                  <div key={flow.flowId} className="flex items-center gap-3 py-2.5 px-3 rounded-lg hover:bg-muted/40 transition-colors border-b border-border/40 last:border-0 text-sm">
+                    <span className="font-mono text-xs w-12 font-bold text-muted-foreground">Flow-{flow.flowId}</span>
+                    <span className="font-mono text-xs text-primary font-medium">{flow.source}</span>
+                    <span className="text-muted-foreground text-xs">{'->'}</span>
+                    <span className="font-mono text-xs text-success font-medium">{flow.destination}</span>
                     <div className="flex-1" />
-                    <span className="text-xs">发: {flow.txPackets.toLocaleString()}</span>
-                    <span className="text-xs">收: {flow.rxPackets.toLocaleString()}</span>
-                    <span className="text-xs text-red-500">丢失: {flow.lostPackets}</span>
-                    <span className="text-xs text-purple-600">{(flow.throughput).toFixed(2)} Mbps</span>
+                    <span className="text-xs font-mono tabular-nums">发: {flow.txPackets.toLocaleString()}</span>
+                    <span className="text-xs font-mono tabular-nums">收: {flow.rxPackets.toLocaleString()}</span>
+                    <span className="text-xs text-destructive font-mono tabular-nums">丢失: {flow.lostPackets}</span>
+                    <span className="text-xs text-purple-600 font-mono tabular-nums font-medium">{(flow.throughput).toFixed(2)} Mbps</span>
                   </div>
                 ))}
               </div>
