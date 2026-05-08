@@ -4,7 +4,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import type { SimulationStatus, FlowStats, NodeStatus } from '@/types/config';
 import {
   Activity, ArrowDownToLine, ArrowUpFromLine, Info, Radio,
-  Wifi, Router, Zap, TrendingUp, TrendingDown,
+  Zap,
 } from 'lucide-react';
 
 interface DashboardProps {
@@ -22,49 +22,6 @@ interface DashboardProps {
   };
 }
 
-interface StatCardProps {
-  label: string;
-  value: string | number;
-  subValue?: string;
-  icon: React.ReactNode;
-  iconBg: string;
-  trend?: 'up' | 'down' | 'neutral';
-  tooltip?: string;
-}
-
-function StatCard({ label, value, subValue, icon, iconBg, trend, tooltip }: StatCardProps) {
-  return (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <div className="bg-card rounded-xl border p-4 shadow-card hover:shadow-card-hover transition-all duration-200 card-lift cursor-default">
-          <div className="flex items-start justify-between">
-            <div className="space-y-2">
-              <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">{label}</p>
-              <div className="flex items-baseline gap-2">
-                <span className="text-2xl font-bold tracking-tight">{value}</span>
-                {trend && trend !== 'neutral' && (
-                  trend === 'up'
-                    ? <TrendingUp className="h-4 w-4 text-success" />
-                    : <TrendingDown className="h-4 w-4 text-destructive" />
-                )}
-              </div>
-              {subValue && <p className="text-xs text-muted-foreground">{subValue}</p>}
-            </div>
-            <div className={`h-10 w-10 rounded-xl flex items-center justify-center shrink-0 ${iconBg}`}>
-              {icon}
-            </div>
-          </div>
-        </div>
-      </TooltipTrigger>
-      {tooltip && (
-        <TooltipContent side="bottom" className="max-w-xs text-xs">
-          {tooltip}
-        </TooltipContent>
-      )}
-    </Tooltip>
-  );
-}
-
 export function Dashboard({ status, flows, nodes, config }: DashboardProps) {
   const totalTx = flows.reduce((sum, f) => sum + f.txPackets, 0);
   const totalLost = flows.reduce((sum, f) => sum + f.lostPackets, 0);
@@ -72,9 +29,6 @@ export function Dashboard({ status, flows, nodes, config }: DashboardProps) {
 
   const totalRxNodes = nodes.reduce((sum, n) => sum + n.rxPackets, 0);
   const totalTxNodes = nodes.reduce((sum, n) => sum + n.txPackets, 0);
-
-  const onlineNodes = nodes.filter(n => n.status === 'online').length;
-  const activeFlowCount = flows.filter(f => f.txPackets > 0).length;
 
   return (
     <div className="space-y-3">
@@ -146,42 +100,6 @@ export function Dashboard({ status, flows, nodes, config }: DashboardProps) {
             </TooltipContent>
           </Tooltip>
         </div>
-      </div>
-
-      {/* Stat Cards Grid */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <StatCard
-          label="在线节点"
-          value={`${onlineNodes}/${nodes.length}`}
-          subValue={status.running ? '实时更新' : '仿真未运行'}
-          icon={<Wifi className="h-5 w-5 text-success" />}
-          iconBg="bg-success/10"
-          tooltip="当前处于 online 状态的节点数量"
-        />
-        <StatCard
-          label="活跃流量"
-          value={activeFlowCount}
-          subValue={`${flows.length} 总流`}
-          icon={<Router className="h-5 w-5 text-primary" />}
-          iconBg="bg-primary/10"
-          tooltip="当前有数据包发送的活跃流量数"
-        />
-        <StatCard
-          label="总发送量"
-          value={totalTxNodes > 1000 ? `${(totalTxNodes / 1000).toFixed(1)}k` : totalTxNodes}
-          subValue="packets"
-          icon={<ArrowUpFromLine className="h-5 w-5 text-cyan-500" />}
-          iconBg="bg-cyan-500/10"
-          tooltip="所有节点 WifiNetDevice 发送包总数"
-        />
-        <StatCard
-          label="总接收量"
-          value={totalRxNodes > 1000 ? `${(totalRxNodes / 1000).toFixed(1)}k` : totalRxNodes}
-          subValue="packets"
-          icon={<ArrowDownToLine className="h-5 w-5 text-violet-500" />}
-          iconBg="bg-violet-500/10"
-          tooltip="所有节点 WifiNetDevice 接收包总数（含广播重复计数）"
-        />
       </div>
 
       {/* MAC Layer Overhead Estimation */}
