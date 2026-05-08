@@ -53,6 +53,7 @@ export function useSimConfig(sim?: SimApi) {
   const [activePreset, setActivePreset] = useState<string>('default');
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastSavedJsonRef = useRef<string>('');
 
   // 挂载时从后端加载：先读已保存配置，再加载预设作为兜底
   useEffect(() => {
@@ -77,8 +78,8 @@ export function useSimConfig(sim?: SimApi) {
     return sim.subscribeParamChange((msg) => {
       setConfig(prev => {
         const key = msg.key as keyof SimConfig;
-        // 只更新 SimConfig 中存在的字段
-        if (key in prev) {
+        // 值未变时返回原对象，避免触发无意义的 re-render 和 auto-save
+        if (key in prev && prev[key] !== msg.value) {
           return { ...prev, [key]: msg.value as SimConfig[keyof SimConfig] };
         }
         return prev;
@@ -163,6 +164,7 @@ export function useSimConfig(sim?: SimApi) {
           body: JSON.stringify(cfg),
         });
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        lastSavedJsonRef.current = JSON.stringify(cfg);
         setSaveStatus('saved');
         setTimeout(() => setSaveStatus('idle'), 2000);
       } catch {
@@ -183,6 +185,7 @@ export function useSimConfig(sim?: SimApi) {
         (r: any) => !r.ok && !(r.reason || '').includes('requires simulator restart')
       );
       if (realFailures.length === 0) {
+        lastSavedJsonRef.current = JSON.stringify(cfg);
         setSaveStatus('saved');
         setTimeout(() => setSaveStatus('idle'), 2000);
       } else {
@@ -198,6 +201,10 @@ export function useSimConfig(sim?: SimApi) {
     if (saveTimerRef.current) {
       clearTimeout(saveTimerRef.current);
     }
+    const currentJson = JSON.stringify(config);
+    // 配置未变更时不触发保存（避免广播回弹导致循环保存）
+    if (currentJson === lastSavedJsonRef.current) return;
+
     saveTimerRef.current = setTimeout(() => saveConfig(config), 500);
     return () => {
       if (saveTimerRef.current) {
