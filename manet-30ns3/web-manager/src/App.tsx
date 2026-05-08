@@ -287,15 +287,6 @@ function App() {
                 status={status}
                 flows={flows}
                 nodes={nodes}
-                config={{
-                  beaconInterval: config.beaconInterval,
-                  ssid: config.ssid,
-                  standard: config.standard,
-                  dataRate: config.dataRate,
-                  txPowerStart: config.txPowerStart,
-                  frequencyMhz: config.frequencyMhz,
-                  macMode: config.macMode,
-                }}
               />
               <div className="flex-1 min-h-0 overflow-auto">
                 <TopologyView nodes={nodes} flows={flows} running={status.running} compact sim={sim} />
