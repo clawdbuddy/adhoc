@@ -19,6 +19,7 @@ from pydantic.alias_generators import to_camel
 
 # ----- supported enums (mirror manet-30ns3/web-manager/src/types/config.ts) ----------------------
 Standard = Literal[
+    "80211a",
     "80211n-2.4GHz", "80211n-5GHz",
     "80211ac", "80211ax-2.4GHz", "80211ax-5GHz",
 ]
@@ -26,7 +27,7 @@ PhyModel = Literal["yans", "spectrum"]
 PathLossModel = Literal[
     "LogDistance", "FreeSpace", "TwoRayGround", "ThreeLogDistance", "Cost231", "Range",
 ]
-FadingModel = Literal["Nakagami", "Jakes"]
+FadingModel = Literal["Nakagami", "Jakes", "Rayleigh", "Rician"]
 PropagationDelay = Literal["ConstantSpeed", "Random"]
 RateControl = Literal["Arf", "Aarf", "Onoe", "Constant", "Minstrel"]
 RoutingProtocol = Literal["aodv", "olsr", "dsdv", "dsr", "none"]
@@ -97,6 +98,14 @@ class SimConfig(_CamelModel):
     nakagami_m2: float = 0.75
     nakagami_d1: float = 50.0
     nakagami_d2: float = 100.0
+    rician_k: float = 9.0
+
+    # --- Obstacles [全局] — 障碍物/地形模型（阴影 + 穿透 + 绕射） ---
+    enable_obstacles: bool = False
+    obstacle_shadowing_sigma: float = 4.0
+    obstacle_penetration_loss: float = 10.0
+    obstacle_diffraction_enabled: bool = True
+    obstacles_json: str = "[]"
 
     # --- Range [全局/动态可调] — 叠加在传播模型上的硬截断，运行时可通过 /api/env/range 修改 ---
     range_target_m: float = 4000.0
@@ -130,7 +139,7 @@ class SimConfig(_CamelModel):
     routing_protocol: RoutingProtocol = "aodv"
     aodv_hello_interval: float = 1.0
     aodv_rreq_retries: int = 2
-    aodv_active_route_timeout: float = 3.0
+    aodv_active_route_timeout: float = 10.0
     aodv_delete_period: float = 5.0
     aodv_net_diameter: int = 35
     aodv_enable_hello: bool = True
@@ -325,16 +334,16 @@ PRESETS: dict[str, SimConfig] = {
         pcapPrefix="throughput-test",
     ),
 
-    # 战术场景——10 节点 / UHF 590 MHz / 20 MHz 信道 / HT-MCS7 / 4 km 视距。
+    # 战术场景——10 节点 / UHF 590 MHz / 20 MHz 信道 / OfdmRate6Mbps / 4 km 视距。
     # 适用于需要 4–8 Mbps 带宽、3–4 km 通视距离的典型战术通信场景。
     "tactical": _preset(
         nNodes=10, simulationTime=300,
         ssid="adhoc-tactical",
-        standard="80211n-5GHz",
-        phyModel="yans",
+        standard="80211a",
+        phyModel="spectrum",
         frequencyMhz=590,
         channelWidthMhz=20,
-        dataRate="HtMcs7",
+        dataRate="OfdmRate6Mbps",
         txPowerStart=30.0, txPowerEnd=30.0,
         txPowerLevels=1,
         rxSensitivity=-92.0,
@@ -630,6 +639,13 @@ FIELD_DESCRIPTIONS: dict[str, str] = {
     "nakagamiM2": "[全局] Nakagami M2：远距离（d >= D2）的衰落参数",
     "nakagamiD1": "[全局] Nakagami 距离 D1：M0/M1 分界的距离阈值（米）",
     "nakagamiD2": "[全局] Nakagami 距离 D2：M1/M2 分界的距离阈值（米）",
+    "ricianK": "[全局] Rician K 因子：直射路径与散射路径的功率比（dB），仅 fadingModel=Rician 时生效",
+    # --- Obstacles [全局] ---
+    "enableObstacles": "[全局] 启用障碍物：是否叠加地形/障碍物模型（阴影 + 穿透 + 绕射）",
+    "obstacleShadowingSigma": "[全局] 阴影标准差：对数正态阴影衰落的标准差（dB）",
+    "obstaclePenetrationLoss": "[全局] 穿透损耗：NLOS 路径的额外穿透损耗（dB）",
+    "obstacleDiffractionEnabled": "[全局] 启用绕射：是否计算障碍物边缘的刀边绕射损耗",
+    "obstaclesJson": "[全局] 障碍物配置：JSON 数组描述矩形障碍物 [{x,y,w,h,loss}]",
     # --- Range [全局/动态可调] ---
     "rangeTargetM": "[全局/动态可调] 目标覆盖范围：叠加在传播模型上的硬截断距离（米），运行时可通过 /api/env/range 修改",
     # --- MAC network [全局] ---
@@ -692,7 +708,11 @@ _FIELD_GROUPS: list[tuple[str, list[str]]] = [
     ("--- Propagation [全局] ---", [
         "propagationDelay", "pathLossModel", "pathLossExponent", "pathLossRefLoss",
         "pathLossRefDistance", "enableFading", "fadingModel",
-        "nakagamiM0", "nakagamiM1", "nakagamiM2", "nakagamiD1", "nakagamiD2",
+        "nakagamiM0", "nakagamiM1", "nakagamiM2", "nakagamiD1", "nakagamiD2", "ricianK",
+    ]),
+    ("--- Obstacles [全局] ---", [
+        "enableObstacles", "obstacleShadowingSigma", "obstaclePenetrationLoss",
+        "obstacleDiffractionEnabled", "obstaclesJson",
     ]),
     ("--- Range [全局/动态可调] ---", ["rangeTargetM"]),
     ("--- MAC Network [全局] ---", [

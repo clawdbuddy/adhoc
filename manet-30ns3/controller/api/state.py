@@ -119,14 +119,23 @@ class Session:
             raise
 
         # 3.5 如果存在上次仿真快照，恢复节点位置和动态参数
+        # 仅当快照中的 preset 与当前请求一致时才恢复位置，避免 preset 切换时
+        # 把大区域随机游走的位置恢复到小区域网格布局上导致节点超出通信范围。
         if SNAPSHOT_PATH.exists():
             try:
                 snapshot = json.loads(SNAPSHOT_PATH.read_text(encoding="utf-8"))
-                positions = snapshot.get("positions", [])
-                for i, pos in enumerate(positions):
-                    if i < cfg.n_nodes and isinstance(pos, dict):
-                        sim.set_node_position(i, pos.get("x", 0.0), pos.get("y", 0.0), pos.get("z", 0.0))
-                log.info("已从快照恢复 %d 个节点位置", len(positions))
+                snapshot_preset = snapshot.get("preset")
+                if snapshot_preset == preset:
+                    positions = snapshot.get("positions", [])
+                    for i, pos in enumerate(positions):
+                        if i < cfg.n_nodes and isinstance(pos, dict):
+                            sim.set_node_position(i, pos.get("x", 0.0), pos.get("y", 0.0), pos.get("z", 0.0))
+                    log.info("已从快照恢复 %d 个节点位置 (preset=%s)", len(positions), preset)
+                else:
+                    log.info(
+                        "跳过快照位置恢复: 快照 preset=%s, 当前 preset=%s",
+                        snapshot_preset, preset,
+                    )
             except Exception as e:  # noqa: BLE001
                 log.warning("恢复快照失败: %s", e)
 
@@ -151,6 +160,7 @@ class Session:
         with self._lock:
             sim, docker_mgr, tele, specs = self.sim, self.docker_mgr, self.telemetry, self.specs
             cfg = self.config
+            last_preset = self.preset
             self.sim = self.docker_mgr = self.telemetry = None
             self.specs = []
             self.preset = None
@@ -185,6 +195,7 @@ class Session:
             try:
                 env = sim.snapshot_env()
                 snapshot = {
+                    "preset": last_preset,
                     "positions": env.positions,
                     "txPower": env.tx_power,
                     "rxSensitivity": env.rx_sensitivity,
@@ -196,7 +207,7 @@ class Session:
                 }
                 SNAPSHOT_PATH.parent.mkdir(parents=True, exist_ok=True)
                 SNAPSHOT_PATH.write_text(json.dumps(snapshot, indent=2), encoding="utf-8")
-                log.info("仿真快照已保存到 %s", SNAPSHOT_PATH)
+                log.info("仿真快照已保存到 %s (preset=%s)", SNAPSHOT_PATH, last_preset)
             except Exception as e:  # noqa: BLE001
                 log.warning("保存仿真快照失败: %s", e)
 
