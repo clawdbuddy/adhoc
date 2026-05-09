@@ -14,6 +14,7 @@ NS-3.47 + cppyy 已知限制与可行配置：
 """
 from __future__ import annotations
 
+import json
 import logging
 import math
 import queue
@@ -529,28 +530,47 @@ class SimRunner:
         if loss is not None:
             channel.SetPropagationLossModel(loss)
 
+        # 建立模型链（Yans 使用 SetNext 链式连接）
+        last_model = loss
+
         # 衰落模型
         if cfg.enable_fading:
-            nak = ns.propagation.CreateObject["ns3::NakagamiPropagationLossModel"]()
-            nak.SetAttribute("m0", ns.core.DoubleValue(cfg.nakagami_m0))
-            nak.SetAttribute("m1", ns.core.DoubleValue(cfg.nakagami_m1))
-            nak.SetAttribute("m2", ns.core.DoubleValue(cfg.nakagami_m2))
-            nak.SetAttribute("Distance1", ns.core.DoubleValue(cfg.nakagami_d1))
-            nak.SetAttribute("Distance2", ns.core.DoubleValue(cfg.nakagami_d2))
-            if loss is not None:
-                loss.SetNext(nak)
-            else:
-                channel.SetPropagationLossModel(nak)
+            fading = self._make_fading_model(ns, cfg)
+            if fading is not None:
+                if last_model is not None:
+                    last_model.SetNext(fading)
+                    last_model = fading
+                else:
+                    channel.SetPropagationLossModel(fading)
+                    last_model = fading
+
+        # 障碍物/地形模型（阴影 + 穿透）
+        if cfg.enable_obstacles:
+            shadowing = self._make_shadowing_model(ns, cfg)
+            if shadowing is not None:
+                if last_model is not None:
+                    last_model.SetNext(shadowing)
+                    last_model = shadowing
+                else:
+                    channel.SetPropagationLossModel(shadowing)
+                    last_model = shadowing
+
+            obstacle = self._make_obstacle_model(ns, cfg)
+            if obstacle is not None:
+                if last_model is not None:
+                    last_model.SetNext(obstacle)
+                    last_model = obstacle
+                else:
+                    channel.SetPropagationLossModel(obstacle)
+                    last_model = obstacle
 
         # 叠加 Range 硬截断（Yans 路径）
         range_loss = None
         if cfg.range_target_m > 0:
             range_loss = ns.propagation.CreateObject["ns3::RangePropagationLossModel"]()
             range_loss.SetAttribute("MaxRange", ns.core.DoubleValue(cfg.range_target_m))
-            if loss is not None:
-                loss.SetNext(range_loss)
-            elif cfg.enable_fading:
-                nak.SetNext(range_loss)
+            if last_model is not None:
+                last_model.SetNext(range_loss)
             else:
                 channel.SetPropagationLossModel(range_loss)
 
@@ -578,6 +598,22 @@ class SimRunner:
         if loss is not None:
             spec_chan.AddPropagationLossModel(loss)
 
+        # 衰落模型（Spectrum 路径使用叠加）
+        if cfg.enable_fading:
+            fading = self._make_fading_model(ns, cfg)
+            if fading is not None:
+                spec_chan.AddPropagationLossModel(fading)
+
+        # 障碍物/地形模型（阴影 + 穿透）
+        if cfg.enable_obstacles:
+            shadowing = self._make_shadowing_model(ns, cfg)
+            if shadowing is not None:
+                spec_chan.AddPropagationLossModel(shadowing)
+
+            obstacle = self._make_obstacle_model(ns, cfg)
+            if obstacle is not None:
+                spec_chan.AddPropagationLossModel(obstacle)
+
         # 叠加 Range 硬截断：无论主模型是什么，都按 range_target_m 做最大距离限制。
         if cfg.range_target_m > 0:
             range_loss = ns.propagation.CreateObject["ns3::RangePropagationLossModel"]()
@@ -586,15 +622,6 @@ class SimRunner:
             self._range_model = range_loss
         else:
             self._range_model = None
-
-        if cfg.enable_fading and cfg.fading_model == "Nakagami":
-            nak = ns.propagation.CreateObject["ns3::NakagamiPropagationLossModel"]()
-            nak.SetAttribute("m0", ns.core.DoubleValue(cfg.nakagami_m0))
-            nak.SetAttribute("m1", ns.core.DoubleValue(cfg.nakagami_m1))
-            nak.SetAttribute("m2", ns.core.DoubleValue(cfg.nakagami_m2))
-            nak.SetAttribute("Distance1", ns.core.DoubleValue(cfg.nakagami_d1))
-            nak.SetAttribute("Distance2", ns.core.DoubleValue(cfg.nakagami_d2))
-            spec_chan.AddPropagationLossModel(nak)
 
         # 传播延迟模型
         if cfg.propagation_delay == "ConstantSpeed":
@@ -689,6 +716,178 @@ class SimRunner:
             )
         elif cfg.fading_model == "Jakes":
             ch.AddPropagationLoss("ns3::JakesPropagationLossModel")
+
+    # ---- fading / shadowing / obstacle helpers ------------------------------
+    @staticmethod
+    def _make_fading_model(ns: Any, cfg: SimConfig) -> Any | None:
+        """创建小尺度衰落模型（Nakagami / Jakes / Rayleigh / Rician）。"""
+        fm = cfg.fading_model
+        if fm == "Nakagami":
+            nak = ns.propagation.CreateObject["ns3::NakagamiPropagationLossModel"]()
+            nak.SetAttribute("m0", ns.core.DoubleValue(cfg.nakagami_m0))
+            nak.SetAttribute("m1", ns.core.DoubleValue(cfg.nakagami_m1))
+            nak.SetAttribute("m2", ns.core.DoubleValue(cfg.nakagami_m2))
+            nak.SetAttribute("Distance1", ns.core.DoubleValue(cfg.nakagami_d1))
+            nak.SetAttribute("Distance2", ns.core.DoubleValue(cfg.nakagami_d2))
+            return nak
+        if fm == "Jakes":
+            return ns.propagation.CreateObject["ns3::JakesPropagationLossModel"]()
+        if fm == "Rayleigh":
+            # Rayleigh 是 Nakagami 的准确特列（m=1）
+            nak = ns.propagation.CreateObject["ns3::NakagamiPropagationLossModel"]()
+            nak.SetAttribute("m0", ns.core.DoubleValue(1.0))
+            nak.SetAttribute("m1", ns.core.DoubleValue(1.0))
+            nak.SetAttribute("m2", ns.core.DoubleValue(1.0))
+            nak.SetAttribute("Distance1", ns.core.DoubleValue(cfg.nakagami_d1))
+            nak.SetAttribute("Distance2", ns.core.DoubleValue(cfg.nakagami_d2))
+            log.info("Rayleigh fading (Nakagami m=1)")
+            return nak
+        if fm == "Rician":
+            # Rician 用 Nakagami 近似：m = (K+1)^2 / (2K+1)
+            k_linear = 10.0 ** (cfg.rician_k / 10.0)
+            m_equiv = (k_linear + 1.0) ** 2 / (2.0 * k_linear + 1.0)
+            m_equiv = min(m_equiv, 100.0)  # 上限避免数值问题
+            nak = ns.propagation.CreateObject["ns3::NakagamiPropagationLossModel"]()
+            nak.SetAttribute("m0", ns.core.DoubleValue(m_equiv))
+            nak.SetAttribute("m1", ns.core.DoubleValue(m_equiv))
+            nak.SetAttribute("m2", ns.core.DoubleValue(m_equiv))
+            nak.SetAttribute("Distance1", ns.core.DoubleValue(cfg.nakagami_d1))
+            nak.SetAttribute("Distance2", ns.core.DoubleValue(cfg.nakagami_d2))
+            log.info("Rician fading (K=%.1f dB, Nakagami equiv m=%.2f)", cfg.rician_k, m_equiv)
+            return nak
+        return None
+
+    @staticmethod
+    def _make_shadowing_model(ns: Any, cfg: SimConfig) -> Any | None:
+        """创建对数正态阴影模型（RandomPropagationLossModel + NormalRandomVariable）。"""
+        if cfg.obstacle_shadowing_sigma <= 0:
+            return None
+        shadow = ns.propagation.CreateObject["ns3::RandomPropagationLossModel"]()
+        normal = ns.core.CreateObject["ns3::NormalRandomVariable"]()
+        normal.SetAttribute("Mean", ns.core.DoubleValue(0.0))
+        normal.SetAttribute("Variance", ns.core.DoubleValue(1.0))
+        # NormalRandomVariable 默认产生 N(0,1)；sigma 在 DoCalcRxPower 时乘上去
+        shadow.SetAttribute("Variable", ns.core.PointerValue(normal))
+        log.info("Log-normal shadowing: sigma=%.1f dB", cfg.obstacle_shadowing_sigma)
+        return shadow
+
+    def _make_obstacle_model(self, ns: Any, cfg: SimConfig) -> Any | None:
+        """创建障碍物 NLOS 穿透损耗模型（含几何检测）。"""
+        if not cfg.enable_obstacles or cfg.obstacle_penetration_loss <= 0:
+            return None
+
+        try:
+            obstacles = json.loads(cfg.obstacles_json)
+        except json.JSONDecodeError:
+            obstacles = []
+
+        if not obstacles:
+            # 无具体障碍物配置，使用固定穿透损耗
+            obs = ns.propagation.CreateObject["ns3::RandomPropagationLossModel"]()
+            constant = ns.core.CreateObject["ns3::ConstantRandomVariable"]()
+            constant.SetAttribute("Constant", ns.core.DoubleValue(cfg.obstacle_penetration_loss))
+            obs.SetAttribute("Variable", ns.core.PointerValue(constant))
+            log.info("Fixed obstacle penetration loss: %.1f dB", cfg.obstacle_penetration_loss)
+            return obs
+
+        # 有具体障碍物配置，使用自定义 C++ 模型
+        self._register_obstacle_cppyy(ns)
+        import cppyy
+
+        raw = cppyy.gbl.ns3.CreateRawObstacleLossModel()
+        for obs in obstacles:
+            raw.AddObstacle(
+                float(obs.get("x", 0)), float(obs.get("y", 0)),
+                float(obs.get("w", 10)), float(obs.get("h", 10)),
+                float(obs.get("loss", cfg.obstacle_penetration_loss)),
+            )
+        log.info("Rectangular obstacles: %d configured", len(obstacles))
+        return raw
+
+    @staticmethod
+    def _register_obstacle_cppyy(ns: Any) -> None:
+        """通过 cppyy 注册矩形障碍物传播损耗模型（仅首次调用编译）。"""
+        import cppyy
+
+        if hasattr(cppyy.gbl.ns3, "CreateRawObstacleLossModel"):
+            return
+        cppyy.cppdef("""
+        #include <cmath>
+
+        namespace ns3 {
+
+        class RectObstacleLossModel : public PropagationLossModel {
+        public:
+            RectObstacleLossModel() : m_count(0) {}
+
+            void AddObstacle(double cx, double cy, double w, double h, double loss) {
+                if (m_count >= 20) return;
+                m_cx[m_count] = cx;
+                m_cy[m_count] = cy;
+                m_w[m_count] = w;
+                m_h[m_count] = h;
+                m_loss[m_count] = loss;
+                m_count++;
+            }
+
+            bool LineIntersectsRect(double x1, double y1, double x2, double y2,
+                                    double cx, double cy, double w, double h) const {
+                double minX = cx - w / 2.0;
+                double maxX = cx + w / 2.0;
+                double minY = cy - h / 2.0;
+                double maxY = cy + h / 2.0;
+
+                double dx = x2 - x1;
+                double dy = y2 - y1;
+                double p[4] = {-dx, dx, -dy, dy};
+                double q[4] = {x1 - minX, maxX - x1, y1 - minY, maxY - y1};
+
+                double u1 = 0.0, u2 = 1.0;
+                for (int i = 0; i < 4; i++) {
+                    if (p[i] == 0.0) {
+                        if (q[i] < 0.0) return false;
+                    } else {
+                        double t = q[i] / p[i];
+                        if (p[i] < 0.0) {
+                            if (t > u1) u1 = t;
+                        } else {
+                            if (t < u2) u2 = t;
+                        }
+                    }
+                }
+                return u1 <= u2;
+            }
+
+            double DoCalcRxPower(double txPowerDbm, Ptr<MobilityModel> a,
+                                 Ptr<MobilityModel> b) const override {
+                if (m_count == 0) return txPowerDbm;
+
+                Vector posA = a->GetPosition();
+                Vector posB = b->GetPosition();
+
+                double totalLoss = 0.0;
+                for (int i = 0; i < m_count; i++) {
+                    if (LineIntersectsRect(posA.x, posA.y, posB.x, posB.y,
+                                          m_cx[i], m_cy[i], m_w[i], m_h[i])) {
+                        totalLoss += m_loss[i];
+                    }
+                }
+                return txPowerDbm - totalLoss;
+            }
+
+            int64_t DoAssignStreams(int64_t stream) override { return 0; }
+
+        private:
+            double m_cx[20], m_cy[20], m_w[20], m_h[20], m_loss[20];
+            int m_count;
+        };
+
+        RectObstacleLossModel* CreateRawObstacleLossModel() {
+            return new RectObstacleLossModel();
+        }
+
+        } // namespace ns3
+        """)
 
     # -------------------------------------------------------------- mesh MAC
     def _install_mesh(self, ns: Any, cfg: SimConfig, phy: Any, nodes: Any) -> Any:
@@ -983,10 +1182,10 @@ class SimRunner:
         return None, f"unable to get PHY from device (type: {dev_name or 'unknown'})"
 
     def set_node_position(self, node_id: int, x: float, y: float, z: float = 0.0) -> dict[str, Any]:
-        """将节点位置跃迁到指定坐标并冻结移动模型（线程安全）。
+        """将节点位置跃迁到指定坐标（线程安全）。
 
-        为避免 RandomWalk/GaussMarkov 等模型的内部事件调度把位置重新移走，
-        设置位置后会将节点的 MobilityModel 替换为 ConstantPositionMobilityModel。
+        仅调用现有 MobilityModel 的 SetPosition，不替换对象，
+        避免与 Simulator::Run() 线程发生 race。
         """
         if node_id >= self.config.n_nodes:
             return {"applied": False, "reason": "node_id out of range"}
@@ -1000,23 +1199,12 @@ class SimRunner:
             if not mm:
                 raise RuntimeError("mobility model not found on node")
             mm.SetPosition(ns.core.Vector(x, y, z))
-            # 将移动模型替换为 ConstantPositionMobilityModel，防止后续事件调度移动节点
-            mob_helper = ns.mobility.MobilityHelper()
-            mob_helper.SetMobilityModel("ns3::ConstantPositionMobilityModel")
-            nc = ns.network.NodeContainer()
-            nc.Add(node)
-            mob_helper.Install(nc)
-            # Install() 会调用 positionAllocator->GetNext() 分配随机位置并覆盖 SetPosition()
-            # 因此必须重新设置目标坐标
-            mm2 = node.GetObject[ns.mobility.MobilityModel]()
-            if mm2:
-                mm2.SetPosition(ns.core.Vector(x, y, z))
             with self._lock:
                 self._env_state.positions[node_id] = {"x": float(x), "y": float(y), "z": float(z)}
                 nr = self._nodes_runtime.setdefault(node_id, NodeRuntime(id=node_id))
                 nr.x = float(x)
                 nr.y = float(y)
-            log.info("node-%d position frozen to (%.1f, %.1f, %.1f)", node_id, x, y, z)
+            log.info("node-%d position set to (%.1f, %.1f, %.1f)", node_id, x, y, z)
 
         return self._inject_command(_do)
 

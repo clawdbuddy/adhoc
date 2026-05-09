@@ -455,62 +455,159 @@ export function ConfigPanel({
                   <Switch checked={config.enableFading} onCheckedChange={v => updateConfig('enableFading', v)} />
                 </div>
                 {config.enableFading && (
-                  <div className="grid grid-cols-2 md:grid-cols-3 gap-5"
+                  <div className="space-y-5"
                   >
-                    <div className="space-y-2"
+                    <div className="grid grid-cols-2 md:grid-cols-3 gap-5"
                     >
-                      <Label className="text-xs font-medium text-muted-foreground"
-                      >模型</Label>
-                      <Select value={config.fadingModel} onValueChange={v => updateConfig('fadingModel', v)}
+                      <div className="space-y-2"
                       >
-                        <SelectTrigger className="h-9"
+                        <Label className="text-xs font-medium text-muted-foreground"
+                        >模型</Label>
+                        <Select value={config.fadingModel} onValueChange={v => updateConfig('fadingModel', v)}
                         >
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {FADING_MODELS.map(m => <SelectItem key={m} value={m}>{m}</SelectItem>)}
-                        </SelectContent>
-                      </Select>
+                          <SelectTrigger className="h-9"
+                          >
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {FADING_MODELS.map(m => <SelectItem key={m} value={m}>{m}</SelectItem>)}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      {(config.fadingModel === 'Nakagami' || config.fadingModel === 'Rayleigh' || config.fadingModel === 'Rician') && (
+                        <>
+                          <div className="space-y-2"
+                          >
+                            <Label className="text-xs font-medium text-muted-foreground"
+                            >距离 D1 (m)</Label>
+                            <Input type="number" value={config.nakagamiD1}
+                              onChange={e => updateConfig('nakagamiD1', Number(e.target.value))} className="h-9"
+                            />
+                          </div>
+                          <div className="space-y-2"
+                          >
+                            <Label className="text-xs font-medium text-muted-foreground"
+                            >距离 D2 (m)</Label>
+                            <Input type="number" value={config.nakagamiD2}
+                              onChange={e => updateConfig('nakagamiD2', Number(e.target.value))} className="h-9"
+                            />
+                          </div>
+                        </>
+                      )}
+                      {config.fadingModel === 'Rician' && (
+                        <div className="space-y-2"
+                        >
+                          <Label className="text-xs font-medium text-muted-foreground"
+                          >K 因子 (dB): {config.ricianK}</Label>
+                          <Slider min={0} max={30} step={0.5} value={[config.ricianK]}
+                            onValueChange={v => updateConfig('ricianK', v[0])}
+                          />
+                          <p className="text-xs text-muted-foreground"
+                          >K=0 退化为 Rayleigh；K 越大越接近 LOS</p>
+                        </div>
+                      )}
+                    </div>
+                    {config.fadingModel === 'Nakagami' && (
+                      <div className="grid grid-cols-2 md:grid-cols-3 gap-5"
+                      >
+                        <div className="space-y-2"
+                        >
+                          <Label className="text-xs font-medium text-muted-foreground"
+                          >Nakagami M0 (d&lt;d1): {config.nakagamiM0}</Label>
+                          <Slider min={0.1} max={5} step={0.1} value={[config.nakagamiM0]}
+                            onValueChange={v => updateConfig('nakagamiM0', v[0])}
+                          />
+                        </div>
+                        <div className="space-y-2"
+                        >
+                          <Label className="text-xs font-medium text-muted-foreground"
+                          >Nakagami M1 (d1&lt;d&lt;d2): {config.nakagamiM1}</Label>
+                          <Slider min={0.1} max={5} step={0.1} value={[config.nakagamiM1]}
+                            onValueChange={v => updateConfig('nakagamiM1', v[0])}
+                          />
+                        </div>
+                        <div className="space-y-2"
+                        >
+                          <Label className="text-xs font-medium text-muted-foreground"
+                          >Nakagami M2 (d&gt;d2): {config.nakagamiM2}</Label>
+                          <Slider min={0.1} max={5} step={0.1} value={[config.nakagamiM2]}
+                            onValueChange={v => updateConfig('nakagamiM2', v[0])}
+                          />
+                        </div>
+                      </div>
+                    )}
+                    {config.fadingModel === 'Rayleigh' && (
+                      <p className="text-xs text-muted-foreground"
+                      >Rayleigh 衰落是 Nakagami 的特列（m=1），用于纯散射环境（无直射路径）</p>
+                    )}
+                    {config.fadingModel === 'Rician' && (
+                      <p className="text-xs text-muted-foreground"
+                      >Rician 衰落通过 Nakagami 近似实现：等效 m = (K+1)²/(2K+1)</p>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {/* Obstacles Section */}
+              <div className="border-t pt-5"
+              >
+                <div className="flex items-center gap-3 mb-4"
+                >
+                  <h4 className="font-semibold text-sm flex items-center gap-2"
+                  >
+                    <div className="h-6 w-6 rounded-md bg-emerald-500/10 flex items-center justify-center"
+                    >
+                      <MapPin className="h-3 w-3 text-emerald-500" />
+                    </div>
+                    障碍物 / 地形模型
+                  </h4>
+                  <Switch checked={config.enableObstacles} onCheckedChange={v => updateConfig('enableObstacles', v)} />
+                </div>
+                {config.enableObstacles && (
+                  <div className="space-y-5"
+                  >
+                    <div className="grid grid-cols-2 md:grid-cols-3 gap-5"
+                    >
+                      <div className="space-y-2"
+                      >
+                        <Label className="text-xs font-medium text-muted-foreground"
+                        >阴影标准差 (dB): {config.obstacleShadowingSigma}</Label>
+                        <Slider min={0} max={12} step={0.5} value={[config.obstacleShadowingSigma]}
+                          onValueChange={v => updateConfig('obstacleShadowingSigma', v[0])}
+                        />
+                        <p className="text-xs text-muted-foreground"
+                        >对数正态阴影衰落的标准差；0 表示禁用阴影</p>
+                      </div>
+                      <div className="space-y-2"
+                      >
+                        <Label className="text-xs font-medium text-muted-foreground"
+                        >穿透损耗 (dB): {config.obstaclePenetrationLoss}</Label>
+                        <Slider min={0} max={40} step={1} value={[config.obstaclePenetrationLoss]}
+                          onValueChange={v => updateConfig('obstaclePenetrationLoss', v[0])}
+                        />
+                        <p className="text-xs text-muted-foreground"
+                        >NLOS 路径的额外穿透损耗</p>
+                      </div>
+                      <div className="flex items-center gap-2 pt-6"
+                      >
+                        <Switch id="diffraction" checked={config.obstacleDiffractionEnabled}
+                          onCheckedChange={v => updateConfig('obstacleDiffractionEnabled', v)} />
+                        <Label htmlFor="diffraction" className="text-sm cursor-pointer"
+                        >启用绕射</Label>
+                      </div>
                     </div>
                     <div className="space-y-2"
                     >
                       <Label className="text-xs font-medium text-muted-foreground"
-                      >Nakagami M0 (d&lt;d1): {config.nakagamiM0}</Label>
-                      <Slider min={0.1} max={5} step={0.1} value={[config.nakagamiM0]}
-                        onValueChange={v => updateConfig('nakagamiM0', v[0])}
+                      >障碍物配置 (JSON)</Label>
+                      <textarea
+                        className="w-full min-h-[80px] rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm font-mono"
+                        value={config.obstaclesJson}
+                        onChange={e => updateConfig('obstaclesJson', e.target.value)}
+                        placeholder='[{"x":100,"y":100,"w":50,"h":50,"loss":15}]'
                       />
-                    </div>
-                    <div className="space-y-2"
-                    >
-                      <Label className="text-xs font-medium text-muted-foreground"
-                      >Nakagami M1 (d1&lt;d&lt;d2): {config.nakagamiM1}</Label>
-                      <Slider min={0.1} max={5} step={0.1} value={[config.nakagamiM1]}
-                        onValueChange={v => updateConfig('nakagamiM1', v[0])}
-                      />
-                    </div>
-                    <div className="space-y-2"
-                    >
-                      <Label className="text-xs font-medium text-muted-foreground"
-                      >Nakagami M2 (d&gt;d2): {config.nakagamiM2}</Label>
-                      <Slider min={0.1} max={5} step={0.1} value={[config.nakagamiM2]}
-                        onValueChange={v => updateConfig('nakagamiM2', v[0])}
-                      />
-                    </div>
-                    <div className="space-y-2"
-                    >
-                      <Label className="text-xs font-medium text-muted-foreground"
-                      >距离 D1 (m)</Label>
-                      <Input type="number" value={config.nakagamiD1}
-                        onChange={e => updateConfig('nakagamiD1', Number(e.target.value))} className="h-9"
-                      />
-                    </div>
-                    <div className="space-y-2"
-                    >
-                      <Label className="text-xs font-medium text-muted-foreground"
-                      >距离 D2 (m)</Label>
-                      <Input type="number" value={config.nakagamiD2}
-                        onChange={e => updateConfig('nakagamiD2', Number(e.target.value))} className="h-9"
-                      />
+                      <p className="text-xs text-muted-foreground"
+                      >矩形障碍物列表：x/y 中心坐标，w/h 宽高，loss 穿透损耗(dB)。留空则对所有链路使用固定穿透损耗。</p>
                     </div>
                   </div>
                 )}

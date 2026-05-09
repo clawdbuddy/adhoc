@@ -36,6 +36,14 @@ export interface SimConfig {
   nakagamiM2: number;
   nakagamiD1: number;
   nakagamiD2: number;
+  ricianK: number;
+
+  // --- Obstacles ---
+  enableObstacles: boolean;
+  obstacleShadowingSigma: number;
+  obstaclePenetrationLoss: number;
+  obstacleDiffractionEnabled: boolean;
+  obstaclesJson: string;
 
   // --- MAC ---
   ssid: string;
@@ -185,11 +193,12 @@ export interface ParamChangeMsg {
 }
 
 export const STANDARDS = [
-  '80211n-2.4GHz', '80211n-5GHz',
+  '80211a', '80211n-2.4GHz', '80211n-5GHz',
   '80211ac', '80211ax-2.4GHz', '80211ax-5GHz',
 ];
 
 export const DATA_RATES: Record<string, string[]> = {
+  '80211a': ['OfdmRate6Mbps', 'OfdmRate9Mbps', 'OfdmRate12Mbps', 'OfdmRate18Mbps', 'OfdmRate24Mbps', 'OfdmRate36Mbps', 'OfdmRate48Mbps', 'OfdmRate54Mbps'],
   '80211n-2.4GHz': ['HtMcs0', 'HtMcs1', 'HtMcs2', 'HtMcs3', 'HtMcs4', 'HtMcs5', 'HtMcs6', 'HtMcs7'],
   '80211n-5GHz': ['HtMcs0', 'HtMcs1', 'HtMcs2', 'HtMcs3', 'HtMcs4', 'HtMcs5', 'HtMcs6', 'HtMcs7'],
   '80211ac': ['VhtMcs0', 'VhtMcs1', 'VhtMcs2', 'VhtMcs3', 'VhtMcs4', 'VhtMcs5', 'VhtMcs6', 'VhtMcs7', 'VhtMcs8', 'VhtMcs9'],
@@ -199,7 +208,7 @@ export const DATA_RATES: Record<string, string[]> = {
 
 export const PHY_MODELS = ['yans', 'spectrum'];
 export const PATH_LOSS_MODELS = ['LogDistance', 'FreeSpace', 'TwoRayGround', 'ThreeLogDistance', 'Cost231', 'Range'];
-export const FADING_MODELS = ['Nakagami', 'Jakes'];
+export const FADING_MODELS = ['Nakagami', 'Jakes', 'Rayleigh', 'Rician'];
 export const PROPAGATION_DELAYS = ['ConstantSpeed', 'Random'];
 export const RATE_CONTROLS = ['Arf', 'Aarf', 'Onoe', 'Constant', 'Minstrel'];
 export const MAC_MODES = ['adhoc', 'mesh'];
