@@ -22,10 +22,11 @@ version: '3.8'
 
 services:
   ns3-controller:
-    build:
-      context: .
-      dockerfile: ns3-controller/Dockerfile.controller
-    image: ns3-controller:3.47
+    # 本地开发时取消注释 build 段，注释 image 行
+    # build:
+    #   context: .
+    #   dockerfile: ns3-controller/Dockerfile.controller.347
+    image: ghcr.io/binnary/adhoc-controller-347:latest
     container_name: ns3-controller
     privileged: true
     network_mode: host
