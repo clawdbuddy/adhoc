@@ -6,7 +6,9 @@
 """
 from __future__ import annotations
 
+import concurrent.futures
 import logging
+import threading
 from dataclasses import dataclass
 from typing import Iterable
 
@@ -34,14 +36,45 @@ class DockerMgr:
     def __init__(self, client: docker.DockerClient | None = None):
         self.client = client or docker.from_env()
         self._nodes: dict[int, RuntimeNode] = {}
+        self._nodes_lock = threading.Lock()
+        # 容器状态缓存，减少 telemetry 每帧都查 Docker API 的开销
+        self._status_cache: dict[int, bool] = {}
+        self._status_lock = threading.Lock()
+        self._status_thread: threading.Thread | None = None
+        self._status_stop = threading.Event()
 
     # ------------------------------------------------------------------ 启动
     def start_all(self, specs: Iterable[NodeSpec], config: SimConfig) -> list[RuntimeNode]:
-        """批量启动所有节点容器。"""
-        out: list[RuntimeNode] = []
-        for spec in specs:
-            out.append(self.start_one(spec, config))
-        return out
+        """批量启动所有节点容器（并行化）。"""
+        spec_list = list(specs)
+        n = len(spec_list)
+        if n == 0:
+            return []
+
+        # 小批量时顺序执行避免线程开销；大批量时并行化
+        if n <= 2:
+            out: list[RuntimeNode] = []
+            for spec in spec_list:
+                out.append(self.start_one(spec, config))
+            return out
+
+        # 并行启动：每节点独立（容器创建 + netns 配置互不干扰）
+        # Docker daemon 有内部锁，但 I/O 并行仍有显著收益
+        out = [None] * n  # type: ignore[list-item]
+        with concurrent.futures.ThreadPoolExecutor(max_workers=min(n, 8)) as pool:
+            futures = {
+                pool.submit(self.start_one, spec, config): i
+                for i, spec in enumerate(spec_list)
+            }
+            for future in concurrent.futures.as_completed(futures):
+                i = futures[future]
+                try:
+                    out[i] = future.result()
+                except Exception:
+                    # 任一节点失败时取消剩余任务并清理
+                    pool.shutdown(wait=False, cancel_futures=True)
+                    raise
+        return out  # type: ignore[return-value]
 
     def start_one(self, spec: NodeSpec, config: SimConfig) -> RuntimeNode:
         """启动单个节点容器并配置网络。"""
@@ -103,18 +136,24 @@ class DockerMgr:
         netns.create_tap(tap, spec.id)
 
         runtime = RuntimeNode(spec=spec, container_id=container.id, pid=pid, name=name)
-        self._nodes[spec.id] = runtime
+        with self._nodes_lock:
+            self._nodes[spec.id] = runtime
         return runtime
 
     # ------------------------------------------------------------------ 停止
     def stop_all(self) -> None:
-        """停止所有节点容器。"""
-        for nid in list(self._nodes):
-            self.stop_one(nid)
+        """停止所有节点容器（并行化）。"""
+        with self._nodes_lock:
+            nids = list(self._nodes)
+        if not nids:
+            return
+        with concurrent.futures.ThreadPoolExecutor(max_workers=min(len(nids), 8)) as pool:
+            list(pool.map(self.stop_one, nids))
 
     def stop_one(self, node_id: int) -> None:
         """停止指定节点并清理其网络接口与独立桥。"""
-        rn = self._nodes.pop(node_id, None)
+        with self._nodes_lock:
+            rn = self._nodes.pop(node_id, None)
         if rn is None:
             return
         self._kill_stale(rn.name)
@@ -164,8 +203,51 @@ class DockerMgr:
     def nodes(self) -> dict[int, RuntimeNode]:
         return dict(self._nodes)
 
+    # ------------------------------------------------------------------ 状态缓存
+    def start_status_refresh(self, interval: float = 1.0) -> None:
+        """启动后台线程，定期刷新容器运行状态缓存。"""
+        self.stop_status_refresh()
+        self._status_stop.clear()
+        self._status_thread = threading.Thread(
+            target=self._status_refresh_loop, args=(interval,), daemon=True,
+            name="docker-status-refresh"
+        )
+        self._status_thread.start()
+
+    def stop_status_refresh(self) -> None:
+        """停止状态刷新后台线程。"""
+        if self._status_thread is not None:
+            self._status_stop.set()
+            self._status_thread.join(timeout=2.0)
+            self._status_thread = None
+
+    def _status_refresh_loop(self, interval: float) -> None:
+        while not self._status_stop.is_set():
+            self._refresh_status_cache()
+            self._status_stop.wait(interval)
+
+    def _refresh_status_cache(self) -> None:
+        """批量查询所有节点的容器状态并写入缓存。"""
+        with self._nodes_lock:
+            nodes = list(self._nodes.values())
+        new_cache: dict[int, bool] = {}
+        for rn in nodes:
+            try:
+                c = self.client.containers.get(rn.container_id)
+                new_cache[rn.spec.id] = c.status == "running"
+            except NotFound:
+                new_cache[rn.spec.id] = False
+            except Exception:
+                new_cache[rn.spec.id] = False
+        with self._status_lock:
+            self._status_cache = new_cache
+
     def is_running(self, node_id: int) -> bool:
-        """检查节点容器是否仍在运行。"""
+        """检查节点容器是否仍在运行（优先读缓存）。"""
+        with self._status_lock:
+            if node_id in self._status_cache:
+                return self._status_cache[node_id]
+        # 缓存未命中时回退到实时查询
         rn = self._nodes.get(node_id)
         if rn is None:
             return False

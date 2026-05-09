@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import logging
 import os
+import threading
 from contextlib import contextmanager
 from typing import Iterator
 
@@ -35,6 +36,29 @@ log = logging.getLogger(__name__)
 DEFAULT_BRIDGE = "br-ns3"
 DEFAULT_BRIDGE_IP = "192.168.100.1"
 DEFAULT_BRIDGE_PREFIX = 24
+
+# 线程本地 IPRoute 缓存：每个线程复用同一 netlink socket，减少创建/销毁开销
+_ipr_local = threading.local()
+
+
+def _get_ipr() -> IPRoute:
+    """获取线程本地的 IPRoute 实例（首次调用时创建）。"""
+    ipr = getattr(_ipr_local, "ipr", None)
+    if ipr is None:
+        ipr = IPRoute()
+        _ipr_local.ipr = ipr
+    return ipr
+
+
+def _close_ipr() -> None:
+    """关闭线程本地 IPRoute 实例。"""
+    ipr = getattr(_ipr_local, "ipr", None)
+    if ipr is not None:
+        try:
+            ipr.close()
+        except Exception:
+            pass
+        _ipr_local.ipr = None
 
 
 def _get_link_index(ipr: IPRoute, name: str) -> int | None:
@@ -54,24 +78,24 @@ def ensure_node_bridge(
 ) -> None:
     """Create the per-node bridge br-ns3-{node_id} with STP off, idempotently."""
     name = node_bridge_name(node_id)
-    with IPRoute() as ipr:
+    ipr = _get_ipr()
+    idx = _get_link_index(ipr, name)
+    if idx is None:
+        ipr.link("add", ifname=name, kind="bridge")
         idx = _get_link_index(ipr, name)
-        if idx is None:
-            ipr.link("add", ifname=name, kind="bridge")
-            idx = _get_link_index(ipr, name)
-            log.info("created node bridge %s", name)
-        # STP off, forward_delay 0
-        ipr.link(
-            "set", index=idx, kind="bridge",
-            br_stp_state=0, br_forward_delay=0,
-        )
-        if ip:
-            # Replace IP
-            for addr in ipr.get_addr(index=idx, family=2):
-                ipr.addr("del", index=idx, address=addr.get_attr("IFA_ADDRESS"),
-                         prefixlen=addr["prefixlen"])
-            ipr.addr("add", index=idx, address=ip, prefixlen=prefixlen)
-        ipr.link("set", index=idx, state="up")
+        log.info("created node bridge %s", name)
+    # STP off, forward_delay 0
+    ipr.link(
+        "set", index=idx, kind="bridge",
+        br_stp_state=0, br_forward_delay=0,
+    )
+    if ip:
+        # Replace IP
+        for addr in ipr.get_addr(index=idx, family=2):
+            ipr.addr("del", index=idx, address=addr.get_attr("IFA_ADDRESS"),
+                     prefixlen=addr["prefixlen"])
+        ipr.addr("add", index=idx, address=ip, prefixlen=prefixlen)
+    ipr.link("set", index=idx, state="up")
 
 
 def ensure_bridge(
@@ -85,37 +109,37 @@ def ensure_bridge(
         Use :func:`ensure_node_bridge` for per-node isolated bridges.
         Kept for backward compatibility.
     """
-    with IPRoute() as ipr:
+    ipr = _get_ipr()
+    idx = _get_link_index(ipr, name)
+    if idx is None:
+        ipr.link("add", ifname=name, kind="bridge")
         idx = _get_link_index(ipr, name)
-        if idx is None:
-            ipr.link("add", ifname=name, kind="bridge")
-            idx = _get_link_index(ipr, name)
-            log.info("created bridge %s", name)
-        ipr.link(
-            "set", index=idx, kind="bridge",
-            br_stp_state=0, br_forward_delay=0,
-        )
-        for addr in ipr.get_addr(index=idx, family=2):
-            ipr.addr("del", index=idx, address=addr.get_attr("IFA_ADDRESS"),
-                     prefixlen=addr["prefixlen"])
-        ipr.addr("add", index=idx, address=ip, prefixlen=prefixlen)
-        ipr.link("set", index=idx, state="up")
+        log.info("created bridge %s", name)
+    ipr.link(
+        "set", index=idx, kind="bridge",
+        br_stp_state=0, br_forward_delay=0,
+    )
+    for addr in ipr.get_addr(index=idx, family=2):
+        ipr.addr("del", index=idx, address=addr.get_attr("IFA_ADDRESS"),
+                 prefixlen=addr["prefixlen"])
+    ipr.addr("add", index=idx, address=ip, prefixlen=prefixlen)
+    ipr.link("set", index=idx, state="up")
 
 
 def create_veth(host_name: str, peer_name: str, node_id: int) -> None:
     """veth pair; host-side joins the per-node bridge and goes up.
     Peer-side is left in the host netns (caller moves it into the container)."""
     bridge = node_bridge_name(node_id)
-    with IPRoute() as ipr:
-        if _get_link_index(ipr, host_name) is None:
-            ipr.link("add", ifname=host_name, kind="veth", peer={"ifname": peer_name})
-            log.info("created veth pair %s ↔ %s", host_name, peer_name)
-        host_idx = _get_link_index(ipr, host_name)
-        br_idx = _get_link_index(ipr, bridge)
-        if br_idx is None:
-            raise RuntimeError(f"bridge {bridge} missing; call ensure_node_bridge({node_id}) first")
-        ipr.link("set", index=host_idx, master=br_idx)
-        ipr.link("set", index=host_idx, state="up")
+    ipr = _get_ipr()
+    if _get_link_index(ipr, host_name) is None:
+        ipr.link("add", ifname=host_name, kind="veth", peer={"ifname": peer_name})
+        log.info("created veth pair %s ↔ %s", host_name, peer_name)
+    host_idx = _get_link_index(ipr, host_name)
+    br_idx = _get_link_index(ipr, bridge)
+    if br_idx is None:
+        raise RuntimeError(f"bridge {bridge} missing; call ensure_node_bridge({node_id}) first")
+    ipr.link("set", index=host_idx, master=br_idx)
+    ipr.link("set", index=host_idx, state="up")
 
 
 def mesh_mac(node_id: int) -> str:
@@ -144,29 +168,29 @@ def move_to_netns(
     if not os.path.exists(netns_path):
         raise RuntimeError(f"container pid {pid} has no /proc/<pid>/ns/net (already exited?)")
     # 1) move
-    with IPRoute() as ipr:
-        idx = _get_link_index(ipr, peer_name)
-        if idx is None:
-            raise RuntimeError(f"veth peer {peer_name} not found in host netns")
-        # IPRoute.link("set", net_ns_fd=...) accepts the netns name registered
-        # under /var/run/netns. We register a temporary symlink for this pid.
-        ns_alias = f"node-pid-{pid}"
-        netns_dir = "/var/run/netns"
-        os.makedirs(netns_dir, exist_ok=True)
-        alias_path = os.path.join(netns_dir, ns_alias)
+    ipr = _get_ipr()
+    idx = _get_link_index(ipr, peer_name)
+    if idx is None:
+        raise RuntimeError(f"veth peer {peer_name} not found in host netns")
+    # IPRoute.link("set", net_ns_fd=...) accepts the netns name registered
+    # under /var/run/netns. We register a temporary symlink for this pid.
+    ns_alias = f"node-pid-{pid}"
+    netns_dir = "/var/run/netns"
+    os.makedirs(netns_dir, exist_ok=True)
+    alias_path = os.path.join(netns_dir, ns_alias)
+    try:
+        if os.path.islink(alias_path) or os.path.exists(alias_path):
+            os.unlink(alias_path)
+    except OSError:
+        pass
+    os.symlink(netns_path, alias_path)
+    try:
+        ipr.link("set", index=idx, net_ns_fd=ns_alias)
+    finally:
         try:
-            if os.path.islink(alias_path) or os.path.exists(alias_path):
-                os.unlink(alias_path)
+            os.unlink(alias_path)
         except OSError:
             pass
-        os.symlink(netns_path, alias_path)
-        try:
-            ipr.link("set", index=idx, net_ns_fd=ns_alias)
-        finally:
-            try:
-                os.unlink(alias_path)
-            except OSError:
-                pass
     # 2) rename + configure inside the target netns
     with NetNS(netns_path) as ns:
         peer_idx = ns.link_lookup(ifname=peer_name)
@@ -188,28 +212,28 @@ def move_to_netns(
 def create_tap(name: str, node_id: int) -> None:
     """ip tuntap add `name` mode tap; attach to per-node bridge; bring up."""
     bridge = node_bridge_name(node_id)
-    with IPRoute() as ipr:
-        if _get_link_index(ipr, name) is None:
-            ipr.link("add", ifname=name, kind="tuntap", mode="tap")
-            log.info("created tap %s", name)
-        idx = _get_link_index(ipr, name)
-        br_idx = _get_link_index(ipr, bridge)
-        if br_idx is None:
-            raise RuntimeError(f"bridge {bridge} missing")
-        ipr.link("set", index=idx, master=br_idx)
-        ipr.link("set", index=idx, state="up")
+    ipr = _get_ipr()
+    if _get_link_index(ipr, name) is None:
+        ipr.link("add", ifname=name, kind="tuntap", mode="tap")
+        log.info("created tap %s", name)
+    idx = _get_link_index(ipr, name)
+    br_idx = _get_link_index(ipr, bridge)
+    if br_idx is None:
+        raise RuntimeError(f"bridge {bridge} missing")
+    ipr.link("set", index=idx, master=br_idx)
+    ipr.link("set", index=idx, state="up")
 
 
 def delete_link(name: str) -> None:
     """Best-effort link deletion."""
-    with IPRoute() as ipr:
-        idx = _get_link_index(ipr, name)
-        if idx is None:
-            return
-        try:
-            ipr.link("del", index=idx)
-        except Exception as e:  # noqa: BLE001
-            log.warning("failed to delete %s: %s", name, e)
+    ipr = _get_ipr()
+    idx = _get_link_index(ipr, name)
+    if idx is None:
+        return
+    try:
+        ipr.link("del", index=idx)
+    except Exception as e:  # noqa: BLE001
+        log.warning("failed to delete %s: %s", name, e)
 
 
 def teardown(node_count: int) -> None:
@@ -218,6 +242,8 @@ def teardown(node_count: int) -> None:
         delete_link(f"veth{i}")
         delete_link(f"tap-{i}")
         delete_link(node_bridge_name(i))
+    # 清理所有线程本地 IPRoute 实例
+    _close_ipr()
 
 
 @contextmanager

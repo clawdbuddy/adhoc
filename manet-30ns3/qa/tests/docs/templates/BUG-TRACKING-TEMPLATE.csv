@@ -1,2 +1,10 @@
 Bug ID,Title,Severity,Component,Test Case ID,Status,Reported Date,Reported By,Assigned To,Description,Steps to Reproduce,Expected Result,Actual Result,Environment,Screenshots/Logs,Resolution,Resolved Date,Verified By,Verification Date
-BUG-001,Adhoc 大规模拓扑 node0→node9 ping 100% 丢包,P2,Network/Simulation,TC-NET-006,Open,2026-05-08,qa-expert,,"在 10 节点 adhoc 大规模拓扑测试中，node0 到 node9 的 ping 测试 100% 丢包，但 traceroute 显示可达（1 跳，RTT ~6-11ms）。","1. 启动仿真 preset=wifi-adhoc-multihop\n2. 等待 10 节点上线\n3. 从 node0 ping node9 (192.168.100.19)\n4. 同时执行 traceroute","ping 应部分或全部到达（0% 丢包或低丢包）","ping 0/10 到达，loss=100%；traceroute 显示 1 跳可达","Linux DXP4800 6.12.30+ x86_64\nDocker ns3-controller\nmanet-node:latest","详见 test-results/wifi_test_results.json","",,,
+BUG-001,Adhoc 大规模拓扑 node0→node9 ping 100% 丢包,P2,Network/Simulation,TC-NET-006,Resolved,2026-05-08,qa-expert,,"在 10 节点 adhoc 大规模拓扑测试中，node0 到 node9 的 ping 测试 100% 丢包，但 traceroute 显示可达（1 跳，RTT ~6-11ms）。","1. 启动仿真 preset=wifi-adhoc-multihop
+2. 等待 10 节点上线
+3. 从 node0 ping node9 (192.168.100.19)
+4. 同时执行 traceroute","ping 应部分或全部到达（0% 丢包或低丢包）","ping 0/10 到达，loss=100%；traceroute 显示 1 跳可达","Linux DXP4800 6.12.30+ x86_64
+Docker ns3-controller
+manet-node:latest","详见 test-results/wifi_test_results.json","宿主机遗留 ns-3 测试进程消耗 Mac48Address::Allocate() 计数器，导致 MeshPointDevice MAC 与容器 eth0 MAC 不一致。802.11s mesh 将容器视为桥接客户端，不泛洪广播帧。修复：kill 遗留进程 + 重启控制器。",2026-05-09,qa-expert,2026-05-09
+BUG-002,report generator 嵌套 pings 解析错误,P3,QA/Tools,TC-NET-008,Resolved,2026-05-09,qa-expert,,"TC-08 多信道遍历测试的 ping 结果为嵌套结构 {freq: {link: {...}}}，报告生成器未正确处理，导致所有行显示 sent=0 recv=0。","1. 运行 TC-08
+2. 生成报告 python3 tests/generate_report.py
+3. 查看 test-results/wifi_test_report.md","应显示每个频率下各链路的正确 sent/received/loss/rtt","所有行显示 sent=0 recv=0 loss=0% rtt=0ms","N/A","详见 wifi_test_report.md TC-08 章节","在 generate_report.py 中增加嵌套结构检测与展开逻辑。",2026-05-09,qa-expert,2026-05-09

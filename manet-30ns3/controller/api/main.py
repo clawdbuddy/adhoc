@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import logging
 import os
+import signal
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -26,9 +27,57 @@ log = logging.getLogger("manet.api")
 logging.basicConfig(level=os.environ.get("LOG_LEVEL", "INFO"))
 
 
+def _kill_stale_ns3_processes() -> None:
+    """清理宿主机上遗留的 ns-3 相关进程，防止 Mac48Address 计数器偏移。"""
+    import glob
+    import time
+
+    killed = []
+    for pid_str in glob.glob("/proc/[0-9]*"):
+        try:
+            pid = int(os.path.basename(pid_str))
+            if pid == os.getpid():
+                continue
+            with open(os.path.join(pid_str, "cmdline"), "rb") as f:
+                cmdline = f.read().replace(b"\x00", b" ").decode("utf-8", errors="replace")
+        except (OSError, ValueError):
+            continue
+
+        # 匹配 ns-3 / manet 相关 Python 进程或旧版 C++ 二进制
+        if not cmdline:
+            continue
+        lower = cmdline.lower()
+        if any(k in lower for k in ("ns3", "ns-3", "manet-30nodes", "sim_runner")):
+            try:
+                os.kill(pid, signal.SIGTERM)
+                # 给 1 秒优雅退出时间
+                for _ in range(10):
+                    time.sleep(0.1)
+                    os.kill(pid, 0)  # 检查进程是否还在
+            except ProcessLookupError:
+                pass  # 已经退出
+            except OSError:
+                pass
+            else:
+                # 仍然存活，强制杀死
+                try:
+                    os.kill(pid, signal.SIGKILL)
+                except OSError:
+                    pass
+            killed.append(pid)
+
+    if killed:
+        log.warning("已清理 %d 个遗留 ns-3 进程: %s", len(killed), killed)
+    else:
+        log.info("未发现遗留 ns-3 进程")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     log.info("MANET 控制器启动")
+    _kill_stale_ns3_processes()
+    # 预导入 ns-3 绑定，摊销 cppyy JIT 编译成本到启动阶段
+    _preload_ns3()
     try:
         yield
     finally:
@@ -39,6 +88,19 @@ async def lifespan(app: FastAPI):
                 await sess.stop()
             except Exception:  # noqa: BLE001
                 log.exception("关闭期间停止会话出错")
+
+
+def _preload_ns3() -> None:
+    """在后台线程中预导入 ns-3 Python 绑定，减少首次仿真启动延迟。"""
+    def _do():
+        try:
+            from ns import ns  # noqa: F401
+            log.info("ns-3 Python 绑定预加载完成")
+        except ImportError:
+            log.warning("ns-3 Python 绑定未安装，跳过预加载")
+        except Exception as e:
+            log.warning("ns-3 预加载失败: %s", e)
+    threading.Thread(target=_do, daemon=True, name="ns3-preload").start()
 
 
 app = FastAPI(title="MANET ns-3 控制器", version="0.1.0", lifespan=lifespan)

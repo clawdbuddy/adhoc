@@ -75,15 +75,25 @@ def main() -> int:
         pings = metrics.get("pings")
         if pings:
             lines.append("**Ping 结果**:")
-            lines.append("| 链路 | 距离 | 发送 | 接收 | 丢包率 | 平均 RTT |")
-            lines.append("|------|------|------|------|--------|----------|")
+            lines.append("| 分组 | 链路 | 距离 | 发送 | 接收 | 丢包率 | 平均 RTT |")
+            lines.append("|------|------|------|------|------|--------|----------|")
             for link, data in pings.items():
-                dist = data.get("distanceM", "—")
-                sent = data.get("sent", 0)
-                recv = data.get("received", 0)
-                loss = data.get("lossPercent", 0)
-                rtt = data.get("rttAvgMs", 0)
-                lines.append(f"| {link} | {dist} | {sent} | {recv} | {loss}% | {rtt}ms |")
+                # TC-08 等多信道测试: pings 为嵌套结构 {freq: {link: {...}}}
+                if isinstance(data, dict) and data and isinstance(next(iter(data.values())), dict):
+                    for sub_link, sub_data in data.items():
+                        dist = sub_data.get("distanceM", "—")
+                        sent = sub_data.get("sent", 0)
+                        recv = sub_data.get("received", 0)
+                        loss = sub_data.get("lossPercent", 0)
+                        rtt = sub_data.get("rttAvgMs", 0)
+                        lines.append(f"| {link} | {sub_link} | {dist} | {sent} | {recv} | {loss}% | {rtt}ms |")
+                else:
+                    dist = data.get("distanceM", "—")
+                    sent = data.get("sent", 0)
+                    recv = data.get("received", 0)
+                    loss = data.get("lossPercent", 0)
+                    rtt = data.get("rttAvgMs", 0)
+                    lines.append(f"| — | {link} | {dist} | {sent} | {recv} | {loss}% | {rtt}ms |")
             lines.append("")
 
         iperf = metrics.get("iperf")

@@ -104,9 +104,10 @@ class Session:
         # 1. 启动容器（每次调用同时创建每节点独立桥 + veth 对 + tap，并将 veth 对端移入 netns）
         docker_mgr = DockerMgr()
         try:
-            docker_mgr.start_all(specs, cfg)
+            # 容器启动是 I/O 密集型长时间操作，在线程池中执行避免阻塞事件循环
+            await asyncio.to_thread(docker_mgr.start_all, specs, cfg)
         except Exception:
-            docker_mgr.stop_all()
+            await asyncio.to_thread(docker_mgr.stop_all)
             raise
 
         # 3. 启动 ns-3 仿真器（驱动第 2 步创建的所有 TAP）
@@ -138,6 +139,9 @@ class Session:
                     )
             except Exception as e:  # noqa: BLE001
                 log.warning("恢复快照失败: %s", e)
+
+        # 2. 启动容器状态缓存刷新（避免 telemetry 每帧都查 Docker API）
+        docker_mgr.start_status_refresh(interval=1.0)
 
         # 4. 启动遥测泵 (5 Hz: 把端到端反馈从 ~1s 压到 ~200ms)
         tele = Telemetry(sim, docker_mgr, specs)
@@ -176,19 +180,20 @@ class Session:
             except Exception as e:  # noqa: BLE001
                 log.warning("sim.stop() 抛异常: %s", e)
         if docker_mgr is not None:
+            docker_mgr.stop_status_refresh()
             try:
-                docker_mgr.stop_all()
+                await asyncio.to_thread(docker_mgr.stop_all)
             except Exception as e:  # noqa: BLE001
                 log.warning("docker_mgr.stop_all() 抛异常: %s", e)
         # 用配置中的 n_nodes 而不是实际启动的容器数，
         # 确保 ns-3 创建的所有 tap 接口都被清理
         try:
-            teardown(cfg.n_nodes)
+            await asyncio.to_thread(teardown, cfg.n_nodes)
         except Exception as e:  # noqa: BLE001
             log.warning("teardown 抛异常: %s", e)
 
         # 兜底:扫描 docker 中残留的 manet-node-* 容器,以及任何 tap-/veth 接口
-        _reap_orphans(cfg.n_nodes)
+        await asyncio.to_thread(_reap_orphans, cfg.n_nodes)
 
         # 仿真停止后保存动态参数快照到文件，供下次启动恢复
         if sim is not None:

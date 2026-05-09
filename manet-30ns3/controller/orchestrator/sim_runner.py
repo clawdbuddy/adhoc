@@ -171,6 +171,8 @@ class SimRunner:
         self._tap_bridge_helper: Any = None
         # 当前活跃节点集合（remove 后元素被移除,但 ns-3 NodeContainer 不会缩容）
         self._active_node_ids: set[int] = set()
+        # PHY 缓存：node_id → phy，避免动态命令时的四级回退
+        self._phy_cache: dict[int, Any] = {}
         # 动态参数当前值（供遥测回传前端）
         self._env_state = EnvState(
             tx_power=[float(config.tx_power_start)] * config.n_nodes,
@@ -925,6 +927,11 @@ class SimRunner:
         #     "ControlMode", ns.core.StringValue(cfg.data_rate),
         # )
         devices = mesh_helper.Install(phy, nodes)
+        # ns-3 MeshPointDevice 默认使用 Mac48Address::Allocate() 顺序分配 MAC；
+        # 容器 eth0 由 netns.mesh_mac() 设为 00:00:00:00:00:{i+1}。
+        # 两者必须一致，否则 802.11s 会把容器流量视为"桥接客户端"，导致广播帧
+        # 不被泛洪、单播帧无法转发。若宿主机上有其他 ns-3 进程消耗了 MAC
+        # 分配器，地址会偏移——此时需杀死残留进程后重启控制器。
         self._mac_mode_actual = "mesh"
         log.info(
             "Mesh (802.11s/HWMP) installed on %d 节点，data_rate=%s",
@@ -1108,8 +1115,14 @@ class SimRunner:
     def _get_node_phy(self, node_id: int) -> tuple[Any, str | None]:
         """获取指定节点的 WifiPhy（mesh 模式下的 MeshPointDevice）。
 
+        首次成功后会缓存结果，避免后续动态命令时的重复四级回退。
         返回 (phy, error_message) 二元组。error_message 为 None 表示成功。
         """
+        # 1. 查缓存
+        cached = self._phy_cache.get(node_id)
+        if cached is not None:
+            return cached, None
+
         ns = self._ns
         if ns is None or self._wifi_devices is None:
             return None, "ns or wifi_devices not ready"
@@ -1120,17 +1133,18 @@ class SimRunner:
         try:
             phy = device.GetPhy()
             if phy is not None:
+                self._phy_cache[node_id] = phy
                 return phy, None
         except (AttributeError, TypeError):
             pass
 
         # 方法2: 通过 GetObject 转换为 WifiNetDevice
-        # ns-3.47 + cppyy：模板方法 GetObject 必须用方括号语法实例化
         try:
             wifi_dev = device.GetObject[ns.wifi.WifiNetDevice]()
             if wifi_dev is not None:
                 phy = wifi_dev.GetPhy()
                 if phy is not None:
+                    self._phy_cache[node_id] = phy
                     return phy, None
         except Exception:
             pass
@@ -1148,15 +1162,14 @@ class SimRunner:
                             if wifi_dev is not None:
                                 phy = wifi_dev.GetPhy()
                                 if phy is not None:
+                                    self._phy_cache[node_id] = phy
                                     return phy, None
                     except Exception:
                         pass
-                # ns-3.47 + cppyy：GetInterfaces 可能返回不可遍历对象，回退到节点设备列表
         except Exception:
             pass
 
         # 方法4: 直接遍历节点上所有 NetDevice，寻找 WifiNetDevice
-        # MeshHelper::Install 会在节点上同时添加 MeshPointDevice 和 WifiNetDevice
         try:
             if self._nodes_container is not None:
                 node = self._nodes_container.Get(node_id)
@@ -1168,6 +1181,7 @@ class SimRunner:
                         if wifi_dev is not None:
                             phy = wifi_dev.GetPhy()
                             if phy is not None:
+                                self._phy_cache[node_id] = phy
                                 return phy, None
                     except Exception:
                         pass
@@ -1348,7 +1362,7 @@ class SimRunner:
         return self._inject_command(_do)
 
     def _wall_pacer_loop(self) -> None:
-        """wall-time 100ms 周期：drain 命令队列 + 刷新节点位置快照。
+        """wall-time 周期：drain 命令队列 + 刷新节点位置快照。
 
         独立于 ns-3 sim 时钟,避免 sim 实时倍率 (BestEffort 下重负载会跌到 1/20x)
         把命令落地与位置回读拖到 20s+。
@@ -1361,10 +1375,12 @@ class SimRunner:
         - 对 RandomWalk/GaussMarkov 等带内部 schedule 的模型,从外部线程改 position
           仍存在风险;tactical 用 grid (ConstantPosition) 路径已规避。
         """
+        target_period = 0.1  # 10 Hz 目标
         while not self._stop_event.is_set():
-            time.sleep(0.1)
+            loop_start = time.monotonic()
             ns = self._ns
             if not self._running or ns is None or self._nodes_container is None:
+                time.sleep(target_period)
                 continue
             try:
                 # 1. 排空命令队列
@@ -1421,6 +1437,7 @@ class SimRunner:
                             pass
                     # 2d. FlowMonitor 统计 (ns-3.47 cppyy 不支持 Simulator.Schedule
                     #     传入 Python callback，改在 wall-time 线程懒更新)
+                    #     使用增量更新替代全量 clear+重建，减少 GC 压力
                     if self._fm is not None:
                         try:
                             self._fm.CheckForLostPackets()
@@ -1428,8 +1445,9 @@ class SimRunner:
                             classifier = None
                             if hasattr(self._fm, "GetClassifier"):
                                 classifier = self._fm.GetClassifier()
-                            self._flows_runtime.clear()
+                            seen: set[int] = set()
                             for fid, st in stats:
+                                seen.add(fid)
                                 source, destination = "", ""
                                 if classifier:
                                     ft = classifier.FindFlow(fid)
@@ -1443,17 +1461,37 @@ class SimRunner:
                                 throughput_mbps = (st.rxBytes * 8.0) / elapsed / 1e6
                                 avg_delay = (st.delaySum.GetSeconds() / st.rxPackets) \
                                     if st.rxPackets else 0.0
-                                self._flows_runtime[fid] = FlowRuntime(
-                                    flow_id=fid,
-                                    source=source,
-                                    destination=destination,
-                                    tx_packets=st.txPackets,
-                                    rx_packets=st.rxPackets,
-                                    lost_packets=st.lostPackets,
-                                    avg_delay=avg_delay,
-                                    throughput=throughput_mbps,
-                                )
+                                existing = self._flows_runtime.get(fid)
+                                if existing is not None:
+                                    # 增量更新已有对象，避免频繁创建新对象
+                                    existing.source = source
+                                    existing.destination = destination
+                                    existing.tx_packets = st.txPackets
+                                    existing.rx_packets = st.rxPackets
+                                    existing.lost_packets = st.lostPackets
+                                    existing.avg_delay = avg_delay
+                                    existing.throughput = throughput_mbps
+                                else:
+                                    self._flows_runtime[fid] = FlowRuntime(
+                                        flow_id=fid,
+                                        source=source,
+                                        destination=destination,
+                                        tx_packets=st.txPackets,
+                                        rx_packets=st.rxPackets,
+                                        lost_packets=st.lostPackets,
+                                        avg_delay=avg_delay,
+                                        throughput=throughput_mbps,
+                                    )
+                            # 删除已不存在的流
+                            for dead_fid in list(self._flows_runtime):
+                                if dead_fid not in seen:
+                                    del self._flows_runtime[dead_fid]
                         except Exception as e:  # noqa: BLE001
                             log.warning("flow monitor poll failed: %s", e)
             except Exception as e:  # noqa: BLE001
                 log.warning("wall pacer iteration failed: %s", e)
+            # 自适应 sleep：测量本次迭代耗时，动态调整以维持目标频率
+            elapsed = time.monotonic() - loop_start
+            sleep_time = max(0.0, target_period - elapsed)
+            if sleep_time > 0:
+                self._stop_event.wait(sleep_time)

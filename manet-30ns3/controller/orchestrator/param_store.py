@@ -341,7 +341,7 @@ class ParamStore:
 
     def subscribe(self) -> asyncio.Queue:
         """订阅参数变更事件。返回 asyncio.Queue，事件到达时放入队列。"""
-        q: asyncio.Queue = asyncio.Queue()
+        q: asyncio.Queue = asyncio.Queue(maxsize=64)
         self._subscribers.append(q)
         return q
 
