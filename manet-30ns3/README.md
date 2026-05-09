@@ -98,6 +98,48 @@ curl -s localhost:8000/api/health        # → {"ok": true}
 # 3. 浏览器打开 http://localhost:8000/  即可使用 React 管理面板
 ```
 
+### 使用 GitHub 预构建镜像（无需本地编译 NS-3）
+
+GitHub Actions 已自动构建并推送镜像到 `ghcr.io`：
+
+```bash
+# 1. 登录 GitHub Container Registry
+#   在 https://github.com/settings/tokens 生成具有 read:packages 权限的 Personal Access Token
+export CR_PAT=<your-token>
+echo $CR_PAT | docker login ghcr.io -u <your-github-username> --password-stdin
+
+# 2. 拉取镜像
+docker pull ghcr.io/binnary/adhoc-controller-347:latest
+docker pull ghcr.io/binnary/manet-node:latest
+
+# 3. 节点镜像必须本地 tag 为 manet-node:latest（控制器硬编码）
+docker tag ghcr.io/binnary/manet-node:latest manet-node:latest
+
+# 4. 启动控制器
+#   ⚠️ --privileged 绝对不能省略，否则 pyroute2 创建网桥/TAP/veth 会报
+#   NetlinkError(1, 'Operation not permitted')
+docker run -d --name ns3-controller \
+  --privileged \
+  --network host \
+  --pid host \
+  -v /var/run/docker.sock:/var/run/docker.sock \
+  -v /var/run/netns:/var/run/netns \
+  ghcr.io/binnary/adhoc-controller-347:latest
+
+# 5. 验证
+curl -s localhost:8000/api/health
+```
+
+关键参数说明：
+
+| 参数 | 必要性 | 说明 |
+|------|--------|------|
+| `--privileged` | **必须** | 创建 Linux bridge / TAP / veth、移动 netns 需要完整特权 |
+| `--network host` | **必须** | 控制器直接操作宿主机网络栈 |
+| `--pid host` | 推荐 | 容器内 `ps` 能看到宿主机进程，便于调试 |
+| `-v /var/run/docker.sock` | **必须** | 控制器通过 Docker API 动态创建节点容器 |
+| `-v /var/run/netns` | **必须** | `pyroute2` 创建的 netns 符号链接需要持久化到宿主机路径 |
+
 Web 面板功能：
 
 - **Dashboard**：仿真概览、关键指标、节点统计
@@ -402,6 +444,7 @@ ip link | grep -E 'br-ns3|tap-|veth' || echo "clean"
 | 吞吐 0 | 试试 `rtsCtsThreshold=65535`、检查 `pathLossExponent` 是否过大 |
 | 仿真很慢 | 减小 `nNodes`、用 `mobilityModel=grid`、关掉 `ascii` |
 | `exec format error` | 镜像是为 amd64 构建的；确认主机也是 x86_64 |
+| `NetlinkError(1, 'Operation not permitted')` | 容器缺少 `--privileged`。删除容器后重新用 `--privileged` 启动 |
 | ccache 不生效 | 检查 `CCACHE_DIR` 卷挂载（`-v /ccache:/ccache`） |
 
 ## 许可证
