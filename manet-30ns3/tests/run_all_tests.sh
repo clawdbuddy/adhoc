@@ -23,7 +23,7 @@ echo ""
 echo "[1/4] Health check..."
 if ! curl -sf "${CONTROLLER_URL}/api/health" > /dev/null 2>&1; then
     echo "ERROR: Controller not reachable at $CONTROLLER_URL"
-    echo "Hint: docker compose up -d ns3-controller"
+    echo "Hint: docker compose up -d controller"
     exit 1
 fi
 echo "  OK"

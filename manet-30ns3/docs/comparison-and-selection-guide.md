@@ -309,10 +309,10 @@ ir = runner.iperf3(0, dst, "192.168.100.10", duration=5)
 
 ```bash
 # NS-3.36（默认）
-docker compose build ns3-controller
+docker compose build controller
 
 # NS-3.47（备选）
-docker compose -f docker-compose.yml -f docker-compose.347.yml build ns3-controller
+docker compose --profile v347 build ns3-controller-347
 ```
 
 ### A.3 动态控制 API

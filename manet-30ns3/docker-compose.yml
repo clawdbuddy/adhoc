@@ -3,7 +3,7 @@ version: '3.8'
 # ---------------------------------------------------------------------------
 # MANET ns-3 Controller + Node image build composition
 #
-# `ns3-controller` is the long-running service (NS-3.47 + cppyy): it hosts
+# `controller` is the long-running service (NS-3.47 + cppyy): it hosts
 # the FastAPI control plane, the ns-3 Python simulator, and the orchestrator
 # that spawns/destroys `manet-node` containers at runtime via the Docker socket.
 #
@@ -12,8 +12,8 @@ version: '3.8'
 # It does not run as a service.
 #
 # Bring up:
-#   docker compose build node-image-builder ns3-controller
-#   docker compose up -d ns3-controller
+#   docker compose build node-image-builder controller
+#   docker compose up -d controller
 #   curl localhost:8000/api/health
 #   curl -XPOST localhost:8000/api/sim/start \
 #        -H 'content-type: application/json' \
@@ -21,7 +21,7 @@ version: '3.8'
 # ---------------------------------------------------------------------------
 
 services:
-  ns3-controller:
+  controller:
     # 本地开发时取消注释 build 段，注释 image 行
     # build:
     #   context: .
@@ -56,7 +56,7 @@ services:
   # 默认 `docker compose up` 不拉取，必须用 profile 启用：
   #   docker compose --profile v347 build ns3-controller-347
   #   docker compose --profile v347 up   -d ns3-controller-347
-  # 与 ns3-controller 共享 br-ns3 / tap / veth 这一套全局网络资源，
+  # 与 controller 共享 br-ns3 / tap / veth 这一套全局网络资源，
   # 同一时刻只能让一个 controller 跑仿真，否则会互踩。
   ns3-controller-347:
     profiles: ["v347"]
@@ -80,7 +80,7 @@ services:
       - /var/run/netns:/var/run/netns
       - ./results:/results
       - ./config:/app/config
-    # 8000 已被 ns3-controller 占用；这里换 8001 以便并行起服。
+    # 8000 已被 controller 占用；这里换 8001 以便并行起服。
     command: ["uvicorn", "controller.api.main:app",
               "--host", "0.0.0.0", "--port", "8001"]
     restart: unless-stopped

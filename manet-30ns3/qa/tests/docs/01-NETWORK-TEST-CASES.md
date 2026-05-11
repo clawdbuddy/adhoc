@@ -9,7 +9,7 @@
 ## 测试环境前置条件 (Arrange)
 
 1. 宿主机为 x86_64 Linux，已加载 `tun` / `tap` / `bridge` 内核模块
-2. Docker 运行中，`ns3-controller` 容器已启动并监听 `:8000`
+2. Docker 运行中，`controller` 容器已启动并监听 `:8000`
 3. `manet-node` 镜像已构建 (`docker compose --profile build build node-image-builder`)
 4. 控制器健康检查通过：`curl localhost:8000/api/health` → `{"ok":true}`
 5. 测试前确保无残留仿真：`curl -X POST localhost:8000/api/sim/stop`

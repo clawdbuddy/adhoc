@@ -8,7 +8,7 @@
 
 ## 测试环境前置条件 (Arrange)
 
-1. ns3-controller 容器已启动并监听 `:8000`
+1. controller 容器已启动并监听 `:8000`
 2. `manet-node` 镜像已构建
 3. 无残留仿真：`POST /api/sim/stop`
 

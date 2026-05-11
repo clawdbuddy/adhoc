@@ -89,10 +89,10 @@ cd manet-30ns3
 
 # 1. 构建镜像（节点镜像 + 控制器镜像）
 docker compose --profile build build node-image-builder
-docker compose build ns3-controller
+docker compose build controller
 
 # 2. 启动控制器（FastAPI 监听 :8000，特权模式 + host 网络）
-docker compose up -d ns3-controller
+docker compose up -d controller
 curl -s localhost:8000/api/health        # → {"ok": true}
 
 # 3. 浏览器打开 http://localhost:8000/  即可使用 React 管理面板
@@ -390,11 +390,11 @@ cd manet-30ns3
 
 # 1. 构建
 docker compose --profile build build node-image-builder
-docker compose build ns3-controller
+docker compose build controller
 # 预期：ns3-controller 镜像内 `python3 -c "from ns import ns"` 成功导入
 
 # 2. 起服
-docker compose up -d ns3-controller
+docker compose up -d controller
 curl -s localhost:8000/api/health     # {"ok": true}
 
 # 3. 启动 5 节点冒烟
@@ -440,7 +440,7 @@ ip link | grep -E 'br-ns3|tap-|veth' || echo "clean"
 | `/api/health` 返回错误 | `docker logs ns3-controller` 看是否绑定 socket / 启动成功 |
 | 容器之间不通 | 仿真未启动；ns-3 不跑时桥本身不会转发——属于设计内行为 |
 | `ip link` 看不到 `br-ns3` | 仿真未启动，或控制器创建桥失败（缺权限/缺内核模块） |
-| ns-3 build 出错 `unknown module` | 重建控制器镜像：`docker compose build --no-cache ns3-controller` |
+| ns-3 build 出错 `unknown module` | 重建控制器镜像：`docker compose build --no-cache controller` |
 | 吞吐 0 | 试试 `rtsCtsThreshold=65535`、检查 `pathLossExponent` 是否过大 |
 | 仿真很慢 | 减小 `nNodes`、用 `mobilityModel=grid`、关掉 `ascii` |
 | `exec format error` | 镜像是为 amd64 构建的；确认主机也是 x86_64 |
