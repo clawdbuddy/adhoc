@@ -109,7 +109,7 @@ export CR_PAT=<your-token>
 echo $CR_PAT | docker login ghcr.io -u <your-github-username> --password-stdin
 
 # 2. 拉取镜像
-docker pull ghcr.io/clawdbuddy/adhoc-controller-347:latest
+docker pull ghcr.io/clawdbuddy/manet-controller:latest
 docker pull ghcr.io/clawdbuddy/manet-node:latest
 
 # 3. 节点镜像必须本地 tag 为 manet-node:latest（控制器硬编码）
@@ -124,7 +124,7 @@ docker run -d --name controller \
   --pid host \
   -v /var/run/docker.sock:/var/run/docker.sock \
   -v /var/run/netns:/var/run/netns \
-  ghcr.io/clawdbuddy/adhoc-controller-347:latest
+  ghcr.io/clawdbuddy/manet-controller:latest
 
 # 5. 验证
 curl -s localhost:8000/api/health
@@ -228,7 +228,7 @@ curl -X PUT localhost:8000/api/config \
 
 | 参数 | 默认值 | 说明 |
 |------|--------|------|
-| `nNodes` | 6 | AdHoc 节点数（2–100） |
+| `nNodes` | 6 | AdHoc 节点数（2–16） |
 | `simulationTime` | 300 | 仿真时长（秒） |
 | `seed` | 1 | 随机种子 |
 | `run` | 1 | run 编号 |

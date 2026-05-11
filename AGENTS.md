@@ -265,9 +265,9 @@ src/
 4. **release**：仅在打 tag 时生成 Release Notes
 
 镜像地址：
-- `ghcr.io/{owner}/adhoc-node`
-- `ghcr.io/{owner}/adhoc-controller`
-- `ghcr.io/{owner}/adhoc-controller-347`
+- `ghcr.io/{owner}/manet-node`
+- `ghcr.io/{owner}/manet-controller`
+- `ghcr.io/{owner}/manet-controller-347`
 
 ### 部署方式
 
