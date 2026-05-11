@@ -23,6 +23,7 @@ from controller.orchestrator.config import load_config, load_user_config, save_c
 from controller.orchestrator.docker_mgr import CONTAINER_PREFIX, DockerMgr
 from controller.orchestrator.netns import (
     delete_link,
+    list_stale_links,
     node_bridge_name,
     teardown,
 )
@@ -240,14 +241,9 @@ def _reap_orphans(expected_n: int) -> None:
     except Exception as e:  # noqa: BLE001
         log.warning("orphan reap: 列出 docker 容器失败: %s", e)
 
-    # 2. 网络接口:扫描比 expected_n 更大的范围,以防上次跑了更多节点
-    upper = max(expected_n, 16)
-    for i in range(upper):
-        delete_link(f"veth{i}")
-        delete_link(f"tap-{i}")
-        delete_link(node_bridge_name(i))
-    # 兼容旧版共享桥残留
-    delete_link("br-ns3")
+    # 2. 网络接口:扫描所有实际存在的仿真残留接口(tap-*/veth*/br-ns3-* 等)
+    for name in list_stale_links():
+        delete_link(name)
 
 
 # ----- 路由使用的单例访问函数 -----------------------------------

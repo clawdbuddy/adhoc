@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import threading
 from contextlib import contextmanager
 from typing import Iterator
@@ -236,13 +237,44 @@ def delete_link(name: str) -> None:
         log.warning("failed to delete %s: %s", name, e)
 
 
+# 残留接口匹配模式: tap-N, tap-testN, tap-adhocN, test-tapN, vethN, br-ns3-N, br-ns3
+_STALE_PATTERNS = [
+    re.compile(r"^tap-\d+$"),
+    re.compile(r"^tap-test\d+$"),
+    re.compile(r"^tap-adhoc\d+$"),
+    re.compile(r"^test-tap\d+$"),
+    re.compile(r"^veth\d+$"),
+    re.compile(r"^br-ns3-\d+$"),
+    re.compile(r"^br-ns3$"),
+]
+
+
+def list_stale_links() -> list[str]:
+    """Scan host network interfaces and return names matching simulation leftovers."""
+    ipr = _get_ipr()
+    stale: list[str] = []
+    for msg in ipr.get_links():
+        name = msg.get_attr("IFLA_IFNAME")
+        if name and any(p.match(name) for p in _STALE_PATTERNS):
+            stale.append(name)
+    return stale
+
+
 def teardown(node_count: int) -> None:
-    """Remove veth, tap, and per-node bridges for nodes [0, node_count)."""
+    """Remove veth, tap, and per-node bridges for nodes [0, node_count).
+
+    Also scans for any simulation-related interfaces left behind by prior runs
+    (different node counts, test matrices, adhoc experiments) and deletes them.
+    """
+    # 1) 按预期范围清理
     for i in range(node_count):
         delete_link(f"veth{i}")
         delete_link(f"tap-{i}")
         delete_link(node_bridge_name(i))
-    # 清理所有线程本地 IPRoute 实例
+    # 2) 兜底:扫描并删除所有残留仿真接口
+    for name in list_stale_links():
+        delete_link(name)
+    # 3) 清理所有线程本地 IPRoute 实例
     _close_ipr()
 
 
