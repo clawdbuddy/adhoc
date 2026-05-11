@@ -243,28 +243,65 @@ class ParamStore:
 
         try:
             if key == "positions":
-                return self._set_positions(value, sim)
+                result = self._set_positions(value, sim)
+                if result.get("ok"):
+                    self._persist_dynamic_to_config(key, value)
+                return result
             if key == "txPower":
-                return self._set_tx_power(value, sim)
+                result = self._set_tx_power(value, sim)
+                if result.get("ok"):
+                    scalar_val = value[0] if isinstance(value, (list, tuple)) and value else value
+                    self._persist_dynamic_to_config(key, scalar_val)
+                return result
             if key == "rxSensitivity":
-                return self._set_rx_sensitivity(value, sim)
+                result = self._set_rx_sensitivity(value, sim)
+                if result.get("ok"):
+                    scalar_val = value[0] if isinstance(value, (list, tuple)) and value else value
+                    self._persist_dynamic_to_config(key, scalar_val)
+                return result
             if key == "pathLossExponent":
                 r = sim.set_path_loss_exponent(float(value))
+                if r.get("applied", False):
+                    self._persist_dynamic_to_config(key, value)
                 return {"ok": r.get("applied", False), **r, "key": key}
             if key == "frequencyMhz":
                 r = sim.set_frequency(int(value))
+                if r.get("applied", False):
+                    self._persist_dynamic_to_config(key, value)
                 return {"ok": r.get("applied", False), **r, "key": key}
             if key == "channelWidthMhz":
                 r = sim.set_channel_width(int(value))
+                if r.get("applied", False):
+                    self._persist_dynamic_to_config(key, value)
                 return {"ok": r.get("applied", False), **r, "key": key}
             if key == "rangeTargetM":
                 r = sim.set_range_target(float(value))
+                if r.get("applied", False):
+                    self._persist_dynamic_to_config(key, value)
                 return {"ok": r.get("applied", False), **r, "key": key}
 
             return {"ok": False, "key": key, "reason": f"unsupported dynamic parameter: {key}"}
         except Exception as e:
             log.exception("dynamic set failed: %s = %s", key, value)
             return {"ok": False, "key": key, "reason": str(e)}
+
+    def _persist_dynamic_to_config(self, key: str, value: Any) -> None:
+        """将 dynamic 参数的修改同步回 SimConfig 并持久化到文件。
+
+        这样用户在运行时修改参数后，停止仿真再刷新页面/重新启动，
+        参数仍然保留。
+        """
+        sess = self._session
+        overrides: dict[str, Any] = {key: value}
+        if key == "txPower":
+            overrides = {"txPowerStart": value, "txPowerEnd": value}
+        elif key == "rxSensitivity":
+            overrides = {"rxSensitivity": value}
+        try:
+            sess.config = sess.config.merged_with(overrides)
+            save_config_to_file(sess.config)
+        except Exception as e:
+            log.warning("persist dynamic param to config failed: %s = %s: %s", key, value, e)
 
     # -- per-node dynamic setters --
 
