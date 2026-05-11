@@ -12,22 +12,22 @@
 +====================================================================+
 |                        宿主机 (x86_64 Ubuntu 22.04)                  |
 |                                                                      |
-|   +-------------+   br-ns3-0   +-------------+                       |
-|   | Container-0 |<--veth0--+---+-tap-0------>|  NS-3                 |
+|   +-------------+   mesh-br-0   +-------------+                       |
+|   | Container-0 |<--mesh-veth0--+---+-mesh-tap-0------>|  NS-3                 |
 |   |  [节点 0]    |              |            |  802.11s              |
 |   |  eth0       |              |            |  Mesh MAC             |
 |   +-------------+              |            |  + PHY                |
 |                                |            |                       |
-|   +-------------+   br-ns3-1   |            |  每帧由                |
-|   | Container-1 |<--veth1--+---+-tap-1------>|  Mesh / Adhoc         |
+|   +-------------+   mesh-br-1   |            |  每帧由                |
+|   | Container-1 |<--mesh-veth1--+---+-mesh-tap-1------>|  Mesh / Adhoc         |
 |   |  [节点 1]    |              |            |  MAC 处理，            |
 |   |  eth0       |              |            |  PHY 决定              |
 |   +-------------+              |            |  转发或丢弃            |
 |                                |            |                       |
 |   ... (最多 30 个节点) ...       |            +---------------------+ |
 |                                |                     ^               |
-|   +-------------+   br-ns3-29  |                     |               |
-|   |Container-29 |<--veth29-+-tap-29------------------+               |
+|   +-------------+   mesh-br-29  |                     |               |
+|   |Container-29 |<--mesh-veth29-+-mesh-tap-29------------------+               |
 |   | [节点 29]    |                                                     |
 |   |  eth0       |                                                     |
 |   +-------------+                                                     |
@@ -46,17 +46,17 @@
 Container-0 用户应用
   → Container-0 eth0 (192.168.100.10)
      → vethns0（容器侧）
-        → veth0（宿主侧，挂在 br-ns3 上）
-           → br-ns3（Linux 桥）
-              → tap-0（ns-3 TapBridge 接口）
+        → mesh-veth0（宿主侧，挂在 mesh-br 上）
+           → mesh-br（Linux 桥）
+              → mesh-tap-0（ns-3 TapBridge 接口）
                  → [ns-3 802.11s Mesh (HWMP) / AdHocWifiMac 处理帧]
                     → [路径损耗模型：A 是否在 B 的覆盖范围内？]
                        → [衰落模型：是否因多径而丢包？]
                           → [信道模型决定：转发 或 丢弃]
-                             → tap-1（若帧通过 PHY，单跳直达）
-                             → tap-中间节点（若超出单跳，HWMP 自动多跳中继）
-                                → br-ns3
-                                   → veth1
+                             → mesh-tap-1（若帧通过 PHY，单跳直达）
+                             → mesh-tap-中间节点（若超出单跳，HWMP 自动多跳中继）
+                                → mesh-br
+                                   → mesh-veth1
                                       → vethns1（位于 Container-1 netns）
                                          → Container-1 eth0
                                             → Container-1 用户应用
@@ -67,7 +67,7 @@ Container-0 用户应用
 | 特性 | 实现方式 |
 |------|---------|
 | 独立网络命名空间 | 每个 Docker 容器 `network_mode="none"` + veth 注入 |
-| 容器之间无直接互通 | 没有共享网桥；每节点独占 br-ns3-{i} |
+| 容器之间无直接互通 | 没有共享网桥；每节点独占 mesh-br-{i} |
 | 强制经过 ns-3 | veth 与 TAP 隔离在独立桥内，跨节点流量只能由 ns-3 转发 |
 | 唯一 IP | 每个容器分配 `192.168.100.(10+N)` |
 | 唯一 MAC | ns-3 为每个节点分配独立的 WiFi MAC |
@@ -109,11 +109,11 @@ export CR_PAT=<your-token>
 echo $CR_PAT | docker login ghcr.io -u <your-github-username> --password-stdin
 
 # 2. 拉取镜像
-docker pull ghcr.io/binnary/adhoc-controller-347:latest
-docker pull ghcr.io/binnary/manet-node:latest
+docker pull ghcr.io/clawdbuddy/adhoc-controller-347:latest
+docker pull ghcr.io/clawdbuddy/manet-node:latest
 
 # 3. 节点镜像必须本地 tag 为 manet-node:latest（控制器硬编码）
-docker tag ghcr.io/binnary/manet-node:latest manet-node:latest
+docker tag ghcr.io/clawdbuddy/manet-node:latest manet-node:latest
 
 # 4. 启动控制器
 #   ⚠️ --privileged 绝对不能省略，否则 pyroute2 创建网桥/TAP/veth 会报
@@ -124,7 +124,7 @@ docker run -d --name controller \
   --pid host \
   -v /var/run/docker.sock:/var/run/docker.sock \
   -v /var/run/netns:/var/run/netns \
-  ghcr.io/binnary/adhoc-controller-347:latest
+  ghcr.io/clawdbuddy/adhoc-controller-347:latest
 
 # 5. 验证
 curl -s localhost:8000/api/health
@@ -376,12 +376,12 @@ manet-30ns3/
 
 单机 MVP 是当前已落地形态。多机方案：
 
-- 选定一台主机跑 ns-3 控制器，独占 `br-ns3` 与所有 TAP。
-- 其它主机仅跑节点容器；它们的 `veth*-h` 不接本地桥，而是接到 VXLAN 网卡，把 L2 平面延伸到控制器主机的 `br-ns3`。
+- 选定一台主机跑 ns-3 控制器，独占 `mesh-br` 与所有 TAP。
+- 其它主机仅跑节点容器；它们的 `mesh-veth*-h` 不接本地桥，而是接到 VXLAN 网卡，把 L2 平面延伸到控制器主机的 `mesh-br`。
 - 控制器主机：对每个远端 peer 执行 `bridge fdb append … dst <peer-ip> via vxlan100`；`netns.py` 与 `docker_mgr.py` 增加 `host` 参数，`POST /api/hosts/register` 用于远端注册。
 - 仍只有一个 ns-3 进程，仿真时间与 PHY 模型一致。
 
-详见 `/Users/binnary/.claude/plans/melodic-puzzling-pebble.md` §9。
+详见 `/Users/clawdbuddy/.claude/plans/melodic-puzzling-pebble.md` §9。
 
 ## 端到端验证（仅 Linux）
 
@@ -401,7 +401,7 @@ curl -s localhost:8000/api/health     # {"ok": true}
 curl -X POST localhost:8000/api/sim/start \
      -H 'content-type: application/json' \
      -d '{"preset":"debug"}'
-ip link | grep -E 'br-ns3|tap-|veth'  # 应能看到 br-ns3、5 个 tap-{i}、5 个 veth{i}
+ip link | grep -E 'mesh-br|mesh-tap|mesh-veth'  # 应能看到 mesh-br、5 个 mesh-tap-{i}、5 个 mesh-veth{i}
 docker ps | grep manet-node           # 5 个节点容器
 
 # 4. 连通性
@@ -414,7 +414,7 @@ docker exec manet-node-0 iperf3 -c 192.168.100.14 -t 5
 
 # 6. 拆除
 curl -X POST localhost:8000/api/sim/stop
-ip link | grep -E 'br-ns3|tap-|veth' || echo "clean"
+ip link | grep -E 'mesh-br|mesh-tap|mesh-veth' || echo "clean"
 ```
 
 ## 构建缓存
@@ -439,7 +439,7 @@ ip link | grep -E 'br-ns3|tap-|veth' || echo "clean"
 |------|------|
 | `/api/health` 返回错误 | `docker logs controller` 看是否绑定 socket / 启动成功 |
 | 容器之间不通 | 仿真未启动；ns-3 不跑时桥本身不会转发——属于设计内行为 |
-| `ip link` 看不到 `br-ns3` | 仿真未启动，或控制器创建桥失败（缺权限/缺内核模块） |
+| `ip link` 看不到 `mesh-br` | 仿真未启动，或控制器创建桥失败（缺权限/缺内核模块） |
 | ns-3 build 出错 `unknown module` | 重建控制器镜像：`docker compose build --no-cache controller` |
 | 吞吐 0 | 试试 `rtsCtsThreshold=65535`、检查 `pathLossExponent` 是否过大 |
 | 仿真很慢 | 减小 `nNodes`、用 `mobilityModel=grid`、关掉 `ascii` |

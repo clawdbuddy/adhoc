@@ -6,17 +6,17 @@ MANET 节点容器入口脚本（Python 实现）
 
 网络隔离：
   - 容器在独立网络命名空间中运行（docker run 时指定 --net=none）。
-  - 控制器在容器启动后注入 veth 对：vethns<ID> 被移入本 netns 并重命名为 eth0。
-  - 宿主侧的 veth 和 tap-<ID> 接入该节点专属的独立桥 br-ns3-<ID>；
-    tap-<ID> 绑定到 ns-3 TapBridge（UseLocal 模式）。
+  - 控制器在容器启动后注入 veth 对：mesh-vethns<ID> 被移入本 netns 并重命名为 eth0。
+  - 宿主侧的 mesh-veth 和 mesh-tap-<ID> 接入该节点专属的独立桥 mesh-br-<ID>；
+    mesh-tap-<ID> 绑定到 ns-3 TapBridge（UseLocal 模式）。
     在 UseLocal 模式下，ns-3 自行打开宿主预创建的持久 TAP 设备，
     因此所有跨节点流量都必须经过 ns-3 的 PHY/MAC 信道模型。
 
 数据路径：
-  Container -> eth0 -> vethns<ID>（宿主）-> br-ns3-<ID> -> tap-<ID> -> ns-3
+  Container -> eth0 -> mesh-vethns<ID>（宿主）-> mesh-br-<ID> -> mesh-tap-<ID> -> ns-3
                                                                        -> AdHoc/Mesh MAC
                                                                        -> WiFi PHY + 路径损耗 + 衰落
-                                                                       -> 对端节点的 tap -> 对端 br-ns3-<ID> -> 对端 eth0
+                                                                       -> 对端节点的 mesh-tap -> 对端 mesh-br-<ID> -> 对端 eth0
 
 用户软件加载模式（USER_APP_MODE）：
   bind  - 宿主 bind-mount /opt/userapp；入口运行 ${USER_APP_CMD:-/opt/userapp/run.sh}
@@ -88,7 +88,7 @@ def setup_network() -> None:
     run(["ip", "link", "set", "eth0", "up"])
 
     # 默认路由经由宿主网桥（作为模拟子网的常规网关 IP；实际转发由 ns-3 路由决定）。
-    # 在独立桥架构中 br-ns3-<ID> 通常不配置 IPv4 地址，因此添加默认路由可能失败；
+    # 在独立桥架构中 mesh-br-<ID> 通常不配置 IPv4 地址，因此添加默认路由可能失败；
     # 同子网通信不需要网关，失败仅影响跨子网/外网访问，不影响 MANET 节点间通信。
     route_res = run(["ip", "route", "add", "default", "via", BRIDGE_IP])
     if route_res.returncode != 0:

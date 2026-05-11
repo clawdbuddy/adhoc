@@ -122,9 +122,9 @@ class DockerMgr:
             raise RuntimeError(f"容器 {name} 启动后没有 PID")
 
         # 配置网络：创建每节点独立桥、veth，将 peer 移入 netns，创建 tap
-        veth_host = f"veth{spec.id}"
-        veth_peer = f"vethns{spec.id}"
-        tap = f"tap-{spec.id}"
+        veth_host = f"mesh-veth{spec.id}"
+        veth_peer = f"mesh-vethns{spec.id}"
+        tap = f"mesh-tap-{spec.id}"
 
         netns.ensure_node_bridge(spec.id)
         netns.create_veth(veth_host, veth_peer, spec.id)
@@ -158,8 +158,8 @@ class DockerMgr:
             return
         self._kill_stale(rn.name)
         # 在宿主侧清理 veth/tap/桥；控制器级别的 teardown 也会在 sim_stop 时运行
-        netns.delete_link(f"veth{node_id}")
-        netns.delete_link(f"tap-{node_id}")
+        netns.delete_link(f"mesh-veth{node_id}")
+        netns.delete_link(f"mesh-tap-{node_id}")
         netns.delete_link(netns.node_bridge_name(node_id))
 
     def _kill_stale(self, name: str) -> None:

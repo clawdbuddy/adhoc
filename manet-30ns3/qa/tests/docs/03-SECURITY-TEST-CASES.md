@@ -192,11 +192,11 @@
 **Steps (Act)**:
 1. 启动仿真（10 节点）
 2. 停止仿真
-3. 检查宿主机：`ip link | grep -E 'br-ns3|tap-|veth'`
+3. 检查宿主机：`ip link | grep -E 'mesh-br|mesh-tap|mesh-veth'`
 4. 检查 Docker：`docker ps | grep manet-node`
 
 **Expected Results (Assert)**:
-- 所有 `br-ns3-*`, `tap-*`, `veth*` 应被清理
+- 所有 `mesh-br-*`, `mesh-tap-*`, `mesh-veth*` 应被清理
 - 所有 `manet-node-*` 容器应被停止
 
 ---

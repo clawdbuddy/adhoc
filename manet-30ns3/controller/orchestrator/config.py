@@ -179,7 +179,7 @@ class SimConfig(_CamelModel):
 
     # --- TapBridge [全局] ---
     tap_mode: Literal["UseBridge", "UseLocal"] = "UseLocal"
-    tap_prefix: str = "tap-"
+    tap_prefix: str = "mesh-tap-"
 
     # --- Traffic generator [全局] ---
     # traffic_mode="tap" 时使用 TapBridge + 真实容器（默认）；

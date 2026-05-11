@@ -278,7 +278,7 @@ ir = runner.iperf3(0, dst, "192.168.100.10", duration=5)
 - [ ] OpenAPI 自动生成 TS 类型，消除前后端类型手工同步
 
 ### 长期
-- [ ] 多机部署（VXLAN 扩展 `br-ns3`）
+- [ ] 多机部署（VXLAN 扩展 `mesh-br`）
 - [ ] NS-3.47 作为默认版本（待 cppyy 稳定性成熟）
 - [ ] 信道宽度运行时修改支持（需 NS-3 内核支持或自定义 PHY）
 

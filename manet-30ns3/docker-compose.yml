@@ -26,7 +26,7 @@ services:
     # build:
     #   context: .
     #   dockerfile: controller/Dockerfile.controller.347
-    image: ghcr.io/binnary/adhoc-controller-347:latest
+    image: ghcr.io/clawdbuddy/adhoc-controller-347:latest
     container_name: controller
     privileged: true
     network_mode: host

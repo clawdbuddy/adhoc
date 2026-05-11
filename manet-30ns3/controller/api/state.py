@@ -160,7 +160,7 @@ class Session:
         """best-effort 停止与清理。
 
         即使 sim 已崩溃 (sess.running == False),仍要走一遍下面的清理路径,
-        把上一次仿真留下的 docker 容器/网桥/tap/veth 兜底删干净。
+        把上一次仿真留下的 docker 容器/mesh-br/mesh-tap/mesh-veth 兜底删干净。
         """
         with self._lock:
             sim, docker_mgr, tele, specs = self.sim, self.docker_mgr, self.telemetry, self.specs
@@ -193,7 +193,7 @@ class Session:
         except Exception as e:  # noqa: BLE001
             log.warning("teardown 抛异常: %s", e)
 
-        # 兜底:扫描 docker 中残留的 manet-node-* 容器,以及任何 tap-/veth 接口
+        # 兜底:扫描 docker 中残留的 manet-node-* 容器,以及任何 mesh-tap/mesh-veth 接口
         await asyncio.to_thread(_reap_orphans, cfg.n_nodes)
 
         # 仿真停止后保存动态参数快照到文件，供下次启动恢复
@@ -224,10 +224,10 @@ class Session:
 
 
 def _reap_orphans(expected_n: int) -> None:
-    """best-effort 清理 manet-node-* 容器和 tap/veth/br-ns3。
+    """best-effort 清理 manet-node-* 容器和 mesh-tap/mesh-veth/mesh-br。
 
     Session 在崩溃后会丢失 docker_mgr 引用,这里通过容器名前缀重新发现并删除;
-    同样用名字模式删除可能残留的 tap-*/veth*/br-ns3。
+    同样用名字模式删除可能残留的 mesh-tap-*/mesh-veth*/mesh-br-*。
     """
     # 1. 容器
     try:
@@ -241,7 +241,7 @@ def _reap_orphans(expected_n: int) -> None:
     except Exception as e:  # noqa: BLE001
         log.warning("orphan reap: 列出 docker 容器失败: %s", e)
 
-    # 2. 网络接口:扫描所有实际存在的仿真残留接口(tap-*/veth*/br-ns3-* 等)
+    # 2. 网络接口:扫描所有实际存在的仿真残留接口(mesh-tap-*/mesh-veth*/mesh-br-* 等)
     for name in list_stale_links():
         delete_link(name)
 

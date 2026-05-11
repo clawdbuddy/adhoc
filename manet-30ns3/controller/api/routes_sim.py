@@ -37,7 +37,7 @@ async def stop_sim() -> dict[str, Any]:
     """停止仿真并清理所有资源。
 
     总是走 sess.stop():即使 sess.running == False(例如 ns-3 线程崩溃后),
-    上一次仿真留下的 docker 容器/br-ns3/tap/veth 也会在这里被兜底清掉。
+    上一次仿真留下的 docker 容器/mesh-br/mesh-tap/mesh-veth 也会在这里被兜底清掉。
     """
     sess = get_session()
     await sess.stop()

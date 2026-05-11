@@ -3,20 +3,20 @@
 Replaces setup-network.sh / cleanup.sh / setup-taps.sh. Idempotent.
 
 For each node `i`:
-    veth{i}      (host side, master = br-ns3-{i}, up)
-    vethns{i}    (peer side, moved into the container's netns and renamed eth0)
-    tap-{i}      (master = br-ns3-{i}, up; attached by ns-3 TapBridge in UseBridge mode)
+    mesh-veth{i}      (host side, master = mesh-br-{i}, up)
+    mesh-vethns{i}    (peer side, moved into the container's netns and renamed eth0)
+    mesh-tap-{i}      (master = mesh-br-{i}, up; attached by ns-3 TapBridge in UseBridge mode)
 
-Each node has its own dedicated Linux bridge `br-ns3-{i}` that connects only
+Each node has its own dedicated Linux bridge `mesh-br-{i}` that connects only
 that node's veth and TAP.  This prevents the Linux bridge from learning
 container MAC addresses and forwarding unicast frames directly between veth
 interfaces, which would bypass the ns-3 PHY/MAC simulation entirely.
 
 Cross-node traffic is forced to go through ns-3:
 
-    Container-0 eth0 → veth0 → br-ns3-0 → tap-0
+    Container-0 eth0 → mesh-veth0 → mesh-br-0 → mesh-tap-0
         → [ns-3 WifiNetDevice → SpectrumChannel → WifiNetDevice]
-            → tap-1 → br-ns3-1 → veth1 → Container-1 eth0
+            → mesh-tap-1 → mesh-br-1 → mesh-veth1 → Container-1 eth0
 
 Multi-host hook (Phase 2): replace the local per-node bridges with VXLAN-backed
 bridges on each host so frames cross the overlay to the simulation host.
@@ -34,7 +34,7 @@ from pyroute2 import IPRoute, NetNS
 
 log = logging.getLogger(__name__)
 
-DEFAULT_BRIDGE = "br-ns3"
+DEFAULT_BRIDGE = "mesh-br"
 DEFAULT_BRIDGE_IP = "192.168.100.1"
 DEFAULT_BRIDGE_PREFIX = 24
 
@@ -68,7 +68,7 @@ def _get_link_index(ipr: IPRoute, name: str) -> int | None:
 
 
 def node_bridge_name(node_id: int) -> str:
-    """Return the per-node bridge name, e.g. br-ns3-0."""
+    """Return the per-node bridge name, e.g. mesh-br-0."""
     return f"{DEFAULT_BRIDGE}-{node_id}"
 
 
@@ -77,7 +77,7 @@ def ensure_node_bridge(
     ip: str | None = None,
     prefixlen: int = DEFAULT_BRIDGE_PREFIX,
 ) -> None:
-    """Create the per-node bridge br-ns3-{node_id} with STP off, idempotently."""
+    """Create the per-node bridge mesh-br-{node_id} with STP off, idempotently."""
     name = node_bridge_name(node_id)
     ipr = _get_ipr()
     idx = _get_link_index(ipr, name)
@@ -104,7 +104,7 @@ def ensure_bridge(
     ip: str = DEFAULT_BRIDGE_IP,
     prefixlen: int = DEFAULT_BRIDGE_PREFIX,
 ) -> None:
-    """Create br-ns3 with STP off and the gateway IP, idempotently.
+    """Create mesh-br with STP off and the gateway IP, idempotently.
 
     .. deprecated::
         Use :func:`ensure_node_bridge` for per-node isolated bridges.
@@ -237,15 +237,16 @@ def delete_link(name: str) -> None:
         log.warning("failed to delete %s: %s", name, e)
 
 
-# 残留接口匹配模式: tap-N, tap-testN, tap-adhocN, test-tapN, vethN, br-ns3-N, br-ns3
+# 残留接口匹配模式: mesh-tap-N, mesh-tap-testN, mesh-tap-adhocN, mesh-test-tapN,
+# mesh-vethN, mesh-br-N, mesh-br
 _STALE_PATTERNS = [
-    re.compile(r"^tap-\d+$"),
-    re.compile(r"^tap-test\d+$"),
-    re.compile(r"^tap-adhoc\d+$"),
-    re.compile(r"^test-tap\d+$"),
-    re.compile(r"^veth\d+$"),
-    re.compile(r"^br-ns3-\d+$"),
-    re.compile(r"^br-ns3$"),
+    re.compile(r"^mesh-tap-\d+$"),
+    re.compile(r"^mesh-tap-test\d+$"),
+    re.compile(r"^mesh-tap-adhoc\d+$"),
+    re.compile(r"^mesh-test-tap\d+$"),
+    re.compile(r"^mesh-veth\d+$"),
+    re.compile(r"^mesh-br-\d+$"),
+    re.compile(r"^mesh-br$"),
 ]
 
 
@@ -268,8 +269,8 @@ def teardown(node_count: int) -> None:
     """
     # 1) 按预期范围清理
     for i in range(node_count):
-        delete_link(f"veth{i}")
-        delete_link(f"tap-{i}")
+        delete_link(f"mesh-veth{i}")
+        delete_link(f"mesh-tap-{i}")
         delete_link(node_bridge_name(i))
     # 2) 兜底:扫描并删除所有残留仿真接口
     for name in list_stale_links():

@@ -65,14 +65,14 @@ def standard_enum(ns, label):
 
 def setup_tap_devices(n):
     for i in range(n):
-        name = f"tap-test{{i}}"
+        name = f"mesh-tap-test{{i}}"
         os.system(f"ip tuntap add mode tap {{name}} 2>/dev/null")
         os.system(f"ip link set {{name}} up 2>/dev/null")
 
 
 def cleanup_tap_devices(n):
     for i in range(n):
-        os.system(f"ip link del tap-test{{i}} 2>/dev/null")
+        os.system(f"ip link del mesh-tap-test{{i}} 2>/dev/null")
 
 
 def send_frame_via_raw(ifname):
@@ -178,11 +178,11 @@ def run_test():
         tb = ns.TapBridgeHelper()
         tb.SetAttribute("Mode", ns.StringValue(TAP_MODE))
         for i in range(N_NODES):
-            tb.SetAttribute("DeviceName", ns.StringValue(f"tap-test{{i}}"))
+            tb.SetAttribute("DeviceName", ns.StringValue(f"mesh-tap-test{{i}}"))
             tb.Install(nodes.Get(i), devices.Get(i))
 
         if N_NODES > 0:
-            send_frame_via_raw("tap-test0")
+            send_frame_via_raw("mesh-tap-test0")
 
         ns.Simulator.Stop(ns.Seconds(2.0))
         ns.Simulator.Run()
