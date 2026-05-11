@@ -312,7 +312,7 @@ ir = runner.iperf3(0, dst, "192.168.100.10", duration=5)
 docker compose build controller
 
 # NS-3.47（备选）
-docker compose --profile v347 build ns3-controller-347
+docker compose --profile v347 build controller-347
 ```
 
 ### A.3 动态控制 API

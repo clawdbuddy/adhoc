@@ -8,7 +8,7 @@
     python3 tests/wifi_test_suite.py [test_name] [--preset PRESET] [--url URL]
 
 前置条件:
-    - ns3-controller 容器已启动 (docker compose up -d controller)
+    - controller 容器已启动 (docker compose up -d controller)
     - 宿主机可访问 localhost:8000
 """
 from __future__ import annotations

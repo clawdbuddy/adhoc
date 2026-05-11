@@ -12,13 +12,13 @@ Kimi_Agent_MANET/
     ├── controller/              # Python 编排层 + FastAPI 控制平面
     │   ├── orchestrator/          # config / netns / docker_mgr / sim_runner / telemetry
     │   └── api/                   # FastAPI 应用 + REST 路由 + /ws/telemetry
-    ├── ns3-controller/          # 用于构建带 Python 绑定的 NS-3.45 的 Dockerfile
+    ├── controller/              # 用于构建带 Python 绑定的 NS-3.45 的 Dockerfile
     │                            # 同时把 controller 包与 web 静态包打入镜像
     ├── node/                    # Dockerfile.node + node-entrypoint.py，MANET 节点容器（Python 入口）
     └── web-manager/             # React 19 + Vite + TS 源码 + 由 `npm run build` 产出的 dist/
 ```
 
-`manet-30ns3/web-manager/` 同时存放 UI 源码与构建产物。镜像构建时直接 `COPY web-manager/dist /app/dist`，FastAPI 在 `:8000` 同时托管 SPA 与 API。修改 UI 时：在 `manet-30ns3/web-manager/` 下执行 `npm run build`（产出本地 `dist/`），然后 `docker compose build ns3-controller`——不再需要把构建产物手工 cp 到独立目录。
+`manet-30ns3/web-manager/` 同时存放 UI 源码与构建产物。镜像构建时直接 `COPY web-manager/dist /app/dist`，FastAPI 在 `:8000` 同时托管 SPA 与 API。修改 UI 时：在 `manet-30ns3/web-manager/` 下执行 `npm run build`（产出本地 `dist/`），然后 `docker compose build controller`——不再需要把构建产物手工 cp 到独立目录。
 
 旧版 C++ 流水线（`ns3-code/manet-30nodes.cc` + `setup-network.sh` + `start-simulation.sh` + `web-manager-start.sh`）已被 Python 控制器**取代**并**已删除**。节点容器入口也从 shell 脚本（`node-entrypoint.sh`）全面迁移到 Python（`node-entrypoint.py`）。运行时唯一权威实现是 `controller/` + `node-entrypoint.py`。
 
@@ -49,10 +49,10 @@ cd manet-30ns3
 # 1. 构建镜像（节点 + 控制器）。controller 构建会编译 NS-3.45 并启用
 #    --enable-python-bindings；ccache 已挂载，重复构建会更快。
 docker compose --profile build build node-image-builder
-docker compose build ns3-controller
+docker compose build controller
 
 # 2. 拉起控制器（FastAPI 监听 :8000，network_mode: host，特权模式）。
-docker compose up -d ns3-controller
+docker compose up -d controller
 curl -s localhost:8000/api/health      # → {"ok": true}
 
 # 3. 通过 REST 接口驱动一次仿真。
@@ -73,7 +73,7 @@ docker compose down
 
 > **注意**：控制器会通过 `pyroute2` 修改**宿主网络状态**（创建 `br-ns3`、`veth{i}`、`tap-{i}`，并把 veth 移入容器 netns），需要 `--privileged`、`network_mode: host` 以及 Docker socket 访问权限。它**只能在 Linux 下运行**，且需要内核加载 `tun` / `tap` / `bridge` 模块——**无法在本仓库所在的 macOS 主机上跑**。要实际验证，请把仓库拷贝/克隆到 x86 Ubuntu 20.04（或等价 Linux VM）上再运行。
 
-> **UI 包**：UI 源码与构建产物都在 `manet-30ns3/web-manager/`。修改后必须先在该目录执行 `npm run build`，再 `docker compose build ns3-controller`，否则镜像里仍然是旧版本前端。
+> **UI 包**：UI 源码与构建产物都在 `manet-30ns3/web-manager/`。修改后必须先在该目录执行 `npm run build`，再 `docker compose build controller`，否则镜像里仍然是旧版本前端。
 
 ## 架构说明
 
@@ -91,7 +91,7 @@ docker compose down
 
 ### FastAPI 控制平面 (`controller/`)
 
-控制器镜像（`ns3-controller/Dockerfile.controller`）打包了启用 `--enable-python-bindings` 的 NS-3.45、`controller/` Python 包以及在 `manet-30ns3/web-manager/dist/` 下的构建产物。镜像启动 `uvicorn controller.api.main:app`，监听 8000 端口。
+控制器镜像（`controller/Dockerfile.controller`）打包了启用 `--enable-python-bindings` 的 NS-3.45、`controller/` Python 包以及在 `manet-30ns3/web-manager/dist/` 下的构建产物。镜像启动 `uvicorn controller.api.main:app`，监听 8000 端口。
 
 模块布局：
 
@@ -135,7 +135,7 @@ controller/
 ### 构建方式
 
 - **`manet-node`**：`node/Dockerfile.node` 基于 Ubuntu 20.04，安装 iproute2/iperf3/python3 等运行时依赖，入口为 `node-entrypoint.py`。
-- **`ns3-controller`**：`ns3-controller/Dockerfile.controller` 基于 **Ubuntu 22.04**，从源码编译 NS-3.45 并启用 Python 绑定。Ubuntu 22.04 自带 GCC 11，无需额外的 gcc-10 兼容补丁；ccache 挂载到 `/ccache` 可加速重复构建。
+- **`controller`**：`controller/Dockerfile.controller` 基于 **Ubuntu 22.04**，从源码编译 NS-3.45 并启用 Python 绑定。Ubuntu 22.04 自带 GCC 11，无需额外的 gcc-10 兼容补丁；ccache 挂载到 `/ccache` 可加速重复构建。
 - **仓库不再支持 ARM64 / 多架构**。
 
 ### 多机部署（暂未实现）
@@ -176,11 +176,11 @@ cd manet-30ns3
 
 # 1. 构建
 docker compose --profile build build node-image-builder
-docker compose build ns3-controller
-# 预期：ns3-controller 镜像内存在 /opt/ns-3.45/build/bindings/python/ns/__init__.py
+docker compose build controller
+# 预期：controller 镜像内存在 /opt/ns-3.45/build/bindings/python/ns/__init__.py
 
 # 2. 起服
-docker compose up -d ns3-controller
+docker compose up -d controller
 curl -s localhost:8000/api/health     # {"ok": true}
 
 # 3. 用 debug 预设启动一次仿真（5 节点冒烟）

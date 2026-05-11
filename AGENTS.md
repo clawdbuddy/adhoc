@@ -27,7 +27,7 @@ adhoc/
 │   ├── controller/              # Python 控制器（FastAPI + 编排器）
 │   │   ├── orchestrator/        #   config / netns / docker_mgr / sim_runner / telemetry
 │   │   └── api/                 #   FastAPI 应用 + REST 路由 + WebSocket
-│   ├── ns3-controller/          #   控制器 Dockerfile（NS-3.36 pybindgen / 3.47 cppyy）
+│   ├── controller/              #   控制器 Dockerfile（NS-3.36 pybindgen / 3.47 cppyy）
 │   ├── node/                    #   节点 Dockerfile + node-entrypoint.py
 │   ├── web-manager/             #   React 19 + Vite + TypeScript 前端
 │   ├── tests/                   #   WiFi 自动化测试套件 + 报告生成器
@@ -104,10 +104,10 @@ cd manet-30ns3
 
 # 1. 构建节点镜像 + 控制器镜像
 docker compose --profile build build node-image-builder
-docker compose build ns3-controller
+docker compose build controller
 
 # 2. 启动控制器（FastAPI :8000，特权模式 + host 网络）
-docker compose up -d ns3-controller
+docker compose up -d controller
 curl -s localhost:8000/api/health     # → {"ok": true}
 
 # 3. 启动仿真
@@ -261,7 +261,7 @@ src/
 流水线分为 4 个阶段：
 1. **frontend**：`npm ci` → `npm run lint` → `npm run build` → 上传 dist artifact
 2. **node-image**：构建 `manet-node` 镜像，推送到 GHCR
-3. **controller-image**：矩阵构建 ns3-controller（3.36 + 3.47 两个版本），推送到 GHCR
+3. **controller-image**：矩阵构建 controller（3.36 + 3.47 两个版本），推送到 GHCR
 4. **release**：仅在打 tag 时生成 Release Notes
 
 镜像地址：
@@ -357,7 +357,7 @@ ip link | grep -E 'br-ns3|tap-|veth'
 docker ps -a | grep manet-node
 
 # 查看控制器日志
-docker logs ns3-controller
+docker logs controller
 ```
 
 ---

@@ -118,7 +118,7 @@ docker tag ghcr.io/binnary/manet-node:latest manet-node:latest
 # 4. 启动控制器
 #   ⚠️ --privileged 绝对不能省略，否则 pyroute2 创建网桥/TAP/veth 会报
 #   NetlinkError(1, 'Operation not permitted')
-docker run -d --name ns3-controller \
+docker run -d --name controller \
   --privileged \
   --network host \
   --pid host \
@@ -364,7 +364,7 @@ manet-30ns3/
 ├─ controller/                 # Python 控制器（主路径）
 │  ├─ orchestrator/            #   config / netns / docker_mgr / sim_runner / telemetry
 │  └─ api/                     #   FastAPI 应用 + REST 路由 + /ws/telemetry
-├─ ns3-controller/             # 控制器 Dockerfile（含 NS-3.45 + Python 绑定）
+├─ controller/                 # 控制器 Dockerfile（含 NS-3.45 + Python 绑定）
 ├─ node/                       # 节点 Dockerfile + node-entrypoint.py
 ├─ web-manager/                # React 19 + Vite + TS 源码 + 由 `npm run build` 产出的 dist/
 ├─ docker-compose.yml          # 控制器 + 节点镜像构建目标
@@ -391,7 +391,7 @@ cd manet-30ns3
 # 1. 构建
 docker compose --profile build build node-image-builder
 docker compose build controller
-# 预期：ns3-controller 镜像内 `python3 -c "from ns import ns"` 成功导入
+# 预期：controller 镜像内 `python3 -c "from ns import ns"` 成功导入
 
 # 2. 起服
 docker compose up -d controller
@@ -419,7 +419,7 @@ ip link | grep -E 'br-ns3|tap-|veth' || echo "clean"
 
 ## 构建缓存
 
-两个 Dockerfile（`node/Dockerfile.node`、`ns3-controller/Dockerfile.controller`）都使用 `ccache`（挂载到 `/ccache`，10 GB 上限），第二次起的构建会快很多。
+两个 Dockerfile（`node/Dockerfile.node`、`controller/Dockerfile.controller`）都使用 `ccache`（挂载到 `/ccache`，10 GB 上限），第二次起的构建会快很多。
 
 ## 系统要求
 
@@ -437,7 +437,7 @@ ip link | grep -E 'br-ns3|tap-|veth' || echo "clean"
 
 | 现象 | 排查 |
 |------|------|
-| `/api/health` 返回错误 | `docker logs ns3-controller` 看是否绑定 socket / 启动成功 |
+| `/api/health` 返回错误 | `docker logs controller` 看是否绑定 socket / 启动成功 |
 | 容器之间不通 | 仿真未启动；ns-3 不跑时桥本身不会转发——属于设计内行为 |
 | `ip link` 看不到 `br-ns3` | 仿真未启动，或控制器创建桥失败（缺权限/缺内核模块） |
 | ns-3 build 出错 `unknown module` | 重建控制器镜像：`docker compose build --no-cache controller` |

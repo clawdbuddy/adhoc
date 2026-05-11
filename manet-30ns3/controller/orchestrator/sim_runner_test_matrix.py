@@ -3,8 +3,8 @@
 遍历 PHY / MAC / WiFi 标准 / QoS / TapBridge 模式 / 传播模型 / 节点数 等维度，
 找出不触发 Txop segfault 的可行配置组合。
 
-运行方式（在 ns3-controller 容器内）：
-    docker exec ns3-controller python3 /app/controller/orchestrator/sim_runner_test_matrix.py
+运行方式（在 controller 容器内）：
+    docker exec controller python3 /app/controller/orchestrator/sim_runner_test_matrix.py
 """
 import csv
 import os

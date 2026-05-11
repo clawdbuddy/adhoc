@@ -481,7 +481,7 @@ async def get_capabilities():
 | 文件 | 职责 |
 |------|------|
 | `manet-30ns3/docker-compose.yml` | 控制器/节点镜像编排 |
-| `manet-30ns3/ns3-controller/Dockerfile.controller` | NS-3.45 + Python 绑定镜像 |
+| `manet-30ns3/controller/Dockerfile.controller` | NS-3.45 + Python 绑定镜像 |
 | `manet-30ns3/node/Dockerfile.node` | 节点容器镜像 |
 | `manet-30ns3/node/node-entrypoint.py` | 节点容器入口 |
 
@@ -496,10 +496,10 @@ cd manet-30ns3
 
 # 1. 构建
 docker compose --profile build build node-image-builder
-docker compose build ns3-controller
+docker compose build controller
 
 # 2. 起服
-docker compose up -d ns3-controller
+docker compose up -d controller
 curl -s localhost:8000/api/health  # → {"ok": true}
 
 # 3. 启动 tactical 预设

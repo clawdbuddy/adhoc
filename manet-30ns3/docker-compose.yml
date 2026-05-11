@@ -25,9 +25,9 @@ services:
     # 本地开发时取消注释 build 段，注释 image 行
     # build:
     #   context: .
-    #   dockerfile: ns3-controller/Dockerfile.controller.347
+    #   dockerfile: controller/Dockerfile.controller.347
     image: ghcr.io/binnary/adhoc-controller-347:latest
-    container_name: ns3-controller
+    container_name: controller
     privileged: true
     network_mode: host
     pid: host
@@ -54,17 +54,17 @@ services:
 
   # NS-3.47 备用构建（cppyy 绑定，使用 Dockerfile.controller.347）。
   # 默认 `docker compose up` 不拉取，必须用 profile 启用：
-  #   docker compose --profile v347 build ns3-controller-347
-  #   docker compose --profile v347 up   -d ns3-controller-347
+#   docker compose --profile v347 build controller-347
+   #   docker compose --profile v347 up   -d controller-347
   # 与 controller 共享 br-ns3 / tap / veth 这一套全局网络资源，
   # 同一时刻只能让一个 controller 跑仿真，否则会互踩。
-  ns3-controller-347:
+  controller-347:
     profiles: ["v347"]
     build:
       context: .
-      dockerfile: ns3-controller/Dockerfile.controller.347
-    image: ns3-controller:3.47
-    container_name: ns3-controller-347
+      dockerfile: controller/Dockerfile.controller.347
+    image: controller:3.47
+    container_name: controller-347
     privileged: true
     network_mode: host
     pid: host
