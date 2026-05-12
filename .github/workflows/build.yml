@@ -13,6 +13,12 @@ on:
       - "**/*.md"
       - ".gitignore"
   workflow_dispatch:
+    inputs:
+      no_cache:
+        description: '禁用 Docker 缓存，强制重新构建'
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -98,6 +104,7 @@ jobs:
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          no-cache: ${{ inputs.no_cache == true }}
           cache-from: type=gha,scope=node-image
           cache-to: type=gha,mode=max,scope=node-image
 
@@ -157,6 +164,7 @@ jobs:
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          no-cache: ${{ inputs.no_cache == true }}
           cache-from: type=gha,scope=controller-${{ matrix.ns3_version }}
           cache-to: type=gha,mode=max,scope=controller-${{ matrix.ns3_version }}
           build-args: |
