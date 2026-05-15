@@ -90,25 +90,58 @@ async def list_flows() -> list[dict[str, Any]]:
 
 @router.post("/api/nodes/{node_id}/exec")
 async def exec_in_node(node_id: int, body: ExecBody) -> dict[str, Any]:
-    """在指定节点容器内执行命令。"""
+    """在指定节点容器内执行命令。支持本地和远端节点。"""
     sess = get_session()
-    if not sess.docker_mgr:
+    if not sess.docker_mgr and not sess.remote_mgrs:
         raise HTTPException(409, "没有正在运行的仿真")
-    try:
-        rc, out = await asyncio.to_thread(sess.docker_mgr.exec_in, node_id, body.cmd)
-    except KeyError as e:
-        raise HTTPException(404, str(e)) from e
+
+    # 查找节点所属主机
+    spec = next((s for s in sess.specs if s.id == node_id), None)
+    if spec is None:
+        raise HTTPException(404, f"节点 {node_id} 不存在")
+
+    if spec.host == "local":
+        if not sess.docker_mgr:
+            raise HTTPException(409, "本地 Docker 管理器不可用")
+        try:
+            rc, out = await asyncio.to_thread(sess.docker_mgr.exec_in, node_id, body.cmd)
+        except KeyError as e:
+            raise HTTPException(404, str(e)) from e
+    else:
+        mgr = sess.remote_mgrs.get(spec.host)
+        if mgr is None:
+            raise HTTPException(409, f"远端主机 {spec.host} 未连接")
+        try:
+            rc, out = await asyncio.to_thread(mgr.exec_in, node_id, body.cmd)
+        except KeyError as e:
+            raise HTTPException(404, str(e)) from e
     return {"exitCode": rc, "output": out}
 
 
 @router.get("/api/logs")
 async def get_logs(node: int, tail: int = 200) -> dict[str, Any]:
-    """获取指定节点容器的日志。"""
+    """获取指定节点容器的日志。支持本地和远端节点。"""
     sess = get_session()
-    if not sess.docker_mgr:
+    if not sess.docker_mgr and not sess.remote_mgrs:
         raise HTTPException(409, "没有正在运行的仿真")
-    try:
-        text = await asyncio.to_thread(sess.docker_mgr.logs, node, tail=tail)
-    except KeyError as e:
-        raise HTTPException(404, str(e)) from e
+
+    spec = next((s for s in sess.specs if s.id == node), None)
+    if spec is None:
+        raise HTTPException(404, f"节点 {node} 不存在")
+
+    if spec.host == "local":
+        if not sess.docker_mgr:
+            raise HTTPException(409, "本地 Docker 管理器不可用")
+        try:
+            text = await asyncio.to_thread(sess.docker_mgr.logs, node, tail=tail)
+        except KeyError as e:
+            raise HTTPException(404, str(e)) from e
+    else:
+        mgr = sess.remote_mgrs.get(spec.host)
+        if mgr is None:
+            raise HTTPException(409, f"远端主机 {spec.host} 未连接")
+        try:
+            text = await asyncio.to_thread(mgr.logs, node, tail=tail)
+        except KeyError as e:
+            raise HTTPException(404, str(e)) from e
     return {"node": node, "tail": tail, "logs": text}

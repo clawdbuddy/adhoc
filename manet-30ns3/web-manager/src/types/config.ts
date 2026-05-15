@@ -142,6 +142,17 @@ export interface NodePairFlow {
   avgDelay: number;
 }
 
+export interface NodeSpec {
+  id: number;
+  ip: string;
+  role: string;
+  host: string;
+  image?: string;
+  userAppMode?: string;
+  userAppCmd?: string;
+  sshEnable?: boolean;
+}
+
 export interface SimulationStatus {
   running: boolean;
   startTime: string | null;

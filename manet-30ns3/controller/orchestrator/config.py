@@ -223,6 +223,17 @@ class RunRequest(_CamelModel):
     nodes: list[NodeSpec] | None = None  # if None, generated from config.n_nodes
 
 
+class HostRegisterRequest(BaseModel):
+    """Body of POST /api/hosts/register."""
+    model_config = ConfigDict(populate_by_name=True)
+
+    ip: str
+    ssh_user: str = "root"
+    ssh_key: str | None = None
+    capacity: int = 8
+    labels: list[str] = Field(default_factory=list)
+
+
 # ----- presets (mirror manet-30ns3/web-manager/src/types/config.ts PRESETS) ----------------------
 def _preset(**overrides: Any) -> SimConfig:
     return SimConfig.model_validate(overrides)

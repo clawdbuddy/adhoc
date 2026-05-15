@@ -9,6 +9,7 @@ import { TopologyView } from '@/sections/TopologyView';
 import { LogView } from '@/sections/LogView';
 import { DynamicControl } from '@/sections/DynamicControl';
 import { ProtoTest } from '@/sections/ProtoTest';
+import type { NodeSpec } from '@/types/config';
 import {
   LayoutDashboard, Settings, Network, ScrollText, Zap, Radio,
   Play, Square, RotateCw, Wifi, Route,
@@ -39,9 +40,10 @@ function App() {
   const { status, nodes, flows, env, logs, startSimulation, stopSimulation, addLog } = sim;
 
   const [activePage, setActivePage] = useState<PageKey>('dashboard');
+  const [nodeSpecs, setNodeSpecs] = useState<NodeSpec[] | undefined>(undefined);
 
   const handleStart = () => {
-    startSimulation(config);
+    startSimulation(config, undefined, nodeSpecs);
   };
 
   const handleRestart = async () => {
@@ -53,7 +55,7 @@ function App() {
     addLog('[ui] 正在重启仿真...');
     await stopSimulation();
     await new Promise(r => setTimeout(r, 1500));
-    await startSimulation(config);
+    await startSimulation(config, undefined, nodeSpecs);
     addLog('[ui] 仿真已重启');
   };
 
@@ -306,6 +308,7 @@ function App() {
                 resetToDefault={resetToDefault}
                 exportConfig={exportConfig}
                 importConfig={importConfig}
+                onNodeSpecsChange={setNodeSpecs}
               />
             </div>
           )}

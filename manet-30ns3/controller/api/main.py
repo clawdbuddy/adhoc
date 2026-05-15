@@ -21,7 +21,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from controller.api import routes_config, routes_dynamic, routes_nodes, routes_sim, ws_radio, ws_telemetry
+from controller.api import routes_config, routes_dynamic, routes_hosts, routes_nodes, routes_sim, ws_radio, ws_telemetry
 from controller.api.state import get_session
 
 log = logging.getLogger("manet.api")
@@ -119,6 +119,7 @@ app.add_middleware(
 app.include_router(routes_sim.router)
 app.include_router(routes_config.router)
 app.include_router(routes_nodes.router)
+app.include_router(routes_hosts.router)
 app.include_router(routes_dynamic.router)
 app.include_router(ws_telemetry.router)
 app.include_router(ws_radio.router)

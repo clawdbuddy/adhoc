@@ -225,6 +225,69 @@ def create_tap(name: str, node_id: int) -> None:
     ipr.link("set", index=idx, state="up")
 
 
+def create_vxlan(
+    name: str,
+    vni: int,
+    local_ip: str,
+    remote_ip: str,
+    port: int = 4789,
+) -> None:
+    """Create a VXLAN interface (kind='vxlan') if it does not already exist.
+
+    Parameters map to the pyroute2/iproute2 vxlan link attributes:
+      - id      -> VNI
+      - local   -> local tunnel endpoint IP
+      - remote  -> remote tunnel endpoint IP (unicast mode)
+      - dstport -> UDP destination port
+    """
+    ipr = _get_ipr()
+    if _get_link_index(ipr, name) is not None:
+        log.debug("vxlan %s already exists", name)
+        return
+    ipr.link(
+        "add",
+        ifname=name,
+        kind="vxlan",
+        vxlan_id=vni,
+        vxlan_local=local_ip,
+        vxlan_remote=remote_ip,
+        vxlan_port=port,
+    )
+    log.info("created vxlan %s (vni=%d local=%s remote=%s port=%d)",
+             name, vni, local_ip, remote_ip, port)
+
+
+def create_vxlan_on_controller(
+    node_id: int,
+    remote_ip: str,
+    local_ip: str,
+    port: int = 4789,
+) -> None:
+    """Controller-side VXLAN for a remote node.
+
+    Creates vxlan-{node_id} (VNI = 100 + node_id) and attaches it to the
+    per-node bridge mesh-br-{node_id}.  The ns-3 tap mesh-tap-{node_id} is
+    already (or will be) on the same bridge, so frames from the remote host
+    flow: vxlan -> bridge -> tap -> ns-3.
+    """
+    name = f"vxlan-{node_id}"
+    vni = 100 + node_id
+    create_vxlan(name, vni, local_ip, remote_ip, port)
+
+    ipr = _get_ipr()
+    idx = _get_link_index(ipr, name)
+    if idx is None:
+        raise RuntimeError(f"vxlan {name} missing after creation")
+    ipr.link("set", index=idx, state="up")
+
+    bridge = node_bridge_name(node_id)
+    br_idx = _get_link_index(ipr, bridge)
+    if br_idx is None:
+        raise RuntimeError(f"bridge {bridge} missing; call ensure_node_bridge({node_id}) first")
+    ipr.link("set", index=idx, master=br_idx)
+    log.info("attached %s to %s", name, bridge)
+
+
 def delete_link(name: str) -> None:
     """Best-effort link deletion."""
     ipr = _get_ipr()
@@ -238,7 +301,7 @@ def delete_link(name: str) -> None:
 
 
 # 残留接口匹配模式: mesh-tap-N, mesh-tap-testN, mesh-tap-adhocN, mesh-test-tapN,
-# mesh-vethN, mesh-br-N, mesh-br
+# mesh-vethN, mesh-br-N, mesh-br, vxlan-N
 _STALE_PATTERNS = [
     re.compile(r"^mesh-tap-\d+$"),
     re.compile(r"^mesh-tap-test\d+$"),
@@ -247,6 +310,7 @@ _STALE_PATTERNS = [
     re.compile(r"^mesh-veth\d+$"),
     re.compile(r"^mesh-br-\d+$"),
     re.compile(r"^mesh-br$"),
+    re.compile(r"^vxlan-\d+$"),
 ]
 
 
@@ -271,6 +335,7 @@ def teardown(node_count: int) -> None:
     for i in range(node_count):
         delete_link(f"mesh-veth{i}")
         delete_link(f"mesh-tap-{i}")
+        delete_link(f"vxlan-{i}")
         delete_link(node_bridge_name(i))
     # 2) 兜底:扫描并删除所有残留仿真接口
     for name in list_stale_links():

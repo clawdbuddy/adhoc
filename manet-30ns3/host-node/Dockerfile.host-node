@@ -1,0 +1,42 @@
+# MANET Host Node — 将物理主机/VM 直接作为 MANET 节点使用
+#
+# 与 manet-node 容器的区别：
+#   - manet-node:  在独立 netns 中运行（--net=none），控制器通过 veth 注入网络
+#   - host-manet-node: 在 host netns 中运行（--net=host），直接创建 VXLAN 隧道到控制器
+#
+# 运行方式（在远端主机上）：
+#   docker run -d --name manet-host-node-2 --net=host --privileged \
+#     --cap-add NET_ADMIN --cap-add SYS_ADMIN \
+#     -e NODE_ID=2 \
+#     -e NODE_IP=192.168.100.12 \
+#     -e CONTROLLER_IP=192.168.1.100 \
+#     -e NODE_ROLE=client \
+#     ghcr.io/clawdbuddy/host-manet-node:latest
+#
+# 数据路径：
+#   Host 应用 → vxlan-{id} (MAC=00:00:00:00:00:{id+1}, IP=192.168.100.{10+id})
+#     → UDP/4789 → Controller Host
+#     → vxlan-{id} → mesh-br-{id} → mesh-tap-{id} → ns-3 PHY/MAC
+#
+FROM ubuntu:22.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV TZ=UTC
+
+# 中科大 apt 镜像
+RUN sed -i 's/archive.ubuntu.com/mirrors.ustc.edu.cn/g' /etc/apt/sources.list \
+    && sed -i 's/security.ubuntu.com/mirrors.ustc.edu.cn/g' /etc/apt/sources.list
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    iproute2 iputils-ping \
+    iperf3 socat \
+    tcpdump \
+    net-tools \
+    openssh-server \
+    python3 \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY host-entrypoint.py /host-entrypoint.py
+RUN chmod +x /host-entrypoint.py
+
+ENTRYPOINT ["python3", "/host-entrypoint.py"]

@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import socket
+import subprocess
 import threading
 from dataclasses import dataclass, field
 from typing import Optional
@@ -22,18 +24,51 @@ from controller.orchestrator import SimConfig, NodeSpec, PRESETS
 from controller.orchestrator.config import load_config, load_user_config, save_config_to_file
 from controller.orchestrator.docker_mgr import CONTAINER_PREFIX, DockerMgr
 from controller.orchestrator.netns import (
+    create_vxlan_on_controller,
     delete_link,
     list_stale_links,
     node_bridge_name,
     teardown,
 )
 from controller.orchestrator.param_store import ParamStore
+from controller.orchestrator.remote_docker import RemoteDockerMgr
 from controller.orchestrator.sim_runner import SimRunner
 from controller.orchestrator.telemetry import Telemetry
 
 SNAPSHOT_PATH: Path = Path("/app/config/sim_snapshot.json")
 
 log = logging.getLogger(__name__)
+
+
+def _get_controller_ip() -> str:
+    """Return the IP address the controller host uses for outbound traffic.
+
+    First checks ``MANET_CONTROLLER_IP`` env var, then falls back to
+    auto-detection via the default route.
+    """
+    ip = __import__("os").environ.get("MANET_CONTROLLER_IP")
+    if ip:
+        return ip
+    try:
+        out = subprocess.check_output(
+            ["ip", "route", "get", "1.1.1.1"],
+            text=True,
+        )
+        parts = out.strip().split()
+        for i, p in enumerate(parts):
+            if p == "src" and i + 1 < len(parts):
+                return parts[i + 1]
+    except Exception:
+        pass
+    # Last resort: UDP socket trick
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        s.connect(("8.8.8.8", 80))
+        return s.getsockname()[0]
+    except Exception:
+        return "127.0.0.1"
+    finally:
+        s.close()
 
 
 def default_node_specs(config: SimConfig) -> list[NodeSpec]:
@@ -61,6 +96,7 @@ class Session:
     config: SimConfig = field(default_factory=lambda: load_user_config() or SimConfig())
     sim: Optional[SimRunner] = None
     docker_mgr: Optional[DockerMgr] = None
+    remote_mgrs: dict[str, RemoteDockerMgr] = field(default_factory=dict)
     telemetry: Optional[Telemetry] = None
     param_store: Optional[ParamStore] = None
     specs: list[NodeSpec] = field(default_factory=list)
@@ -97,32 +133,80 @@ class Session:
 
         specs = nodes if nodes is not None else default_node_specs(cfg)
 
-        log.info("启动仿真 (n=%d preset=%s)", cfg.n_nodes, preset)
+        # 按 host 分组节点
+        local_specs = [s for s in specs if s.host == "local"]
+        remote_specs = [s for s in specs if s.host != "local"]
+
+        log.info(
+            "启动仿真 (n=%d local=%d remote=%d preset=%s)",
+            cfg.n_nodes, len(local_specs), len(remote_specs), preset,
+        )
 
         # 如果上次仿真崩溃留下了残留(docker 容器/网桥/tap/veth),先做一次 best-effort 清理
         _reap_orphans(cfg.n_nodes)
 
-        # 1. 启动容器（每次调用同时创建每节点独立桥 + veth 对 + tap，并将 veth 对端移入 netns）
+        # 1. 启动本地节点容器
         docker_mgr = DockerMgr()
         try:
-            # 容器启动是 I/O 密集型长时间操作，在线程池中执行避免阻塞事件循环
-            await asyncio.to_thread(docker_mgr.start_all, specs, cfg)
+            if local_specs:
+                await asyncio.to_thread(docker_mgr.start_all, local_specs, cfg)
         except Exception:
             await asyncio.to_thread(docker_mgr.stop_all)
             raise
 
-        # 3. 启动 ns-3 仿真器（驱动第 2 步创建的所有 TAP）
+        # 2. 启动远端节点容器
+        remote_mgrs: dict[str, RemoteDockerMgr] = {}
+        controller_ip = _get_controller_ip()
+        try:
+            for spec in remote_specs:
+                mgr = remote_mgrs.get(spec.host)
+                if mgr is None:
+                    mgr = RemoteDockerMgr(spec.host)
+                    remote_mgrs[spec.host] = mgr
+                await asyncio.to_thread(
+                    mgr.start_one, spec, cfg, controller_ip
+                )
+        except Exception:
+            # 清理已启动的远端节点和本地节点
+            for mgr in remote_mgrs.values():
+                try:
+                    mgr.stop_all()
+                except Exception:
+                    pass
+                try:
+                    mgr.close()
+                except Exception:
+                    pass
+            docker_mgr.stop_all()
+            raise
+
+        # 3. 控制器主机为每个远端节点创建 VXLAN 接口
+        for spec in remote_specs:
+            try:
+                create_vxlan_on_controller(
+                    spec.id,
+                    remote_ip=spec.host,
+                    local_ip=controller_ip,
+                )
+            except Exception:
+                log.warning(
+                    "为远端节点 %d (host=%s) 创建 VXLAN 失败",
+                    spec.id, spec.host,
+                )
+                # 继续；ns-3 启动时会报错，但至少其他节点可以工作
+
+        # 4. 启动 ns-3 仿真器（驱动所有 TAP）
         sim = SimRunner(cfg)
         try:
             sim.start()
         except Exception:
             docker_mgr.stop_all()
+            for mgr in remote_mgrs.values():
+                mgr.stop_all()
             teardown(cfg.n_nodes)
             raise
 
-        # 3.5 如果存在上次仿真快照，恢复节点位置和动态参数
-        # 仅当快照中的 preset 与当前请求一致时才恢复位置，避免 preset 切换时
-        # 把大区域随机游走的位置恢复到小区域网格布局上导致节点超出通信范围。
+        # 4.5 如果存在上次仿真快照，恢复节点位置和动态参数
         if SNAPSHOT_PATH.exists():
             try:
                 snapshot = json.loads(SNAPSHOT_PATH.read_text(encoding="utf-8"))
@@ -141,16 +225,29 @@ class Session:
             except Exception as e:  # noqa: BLE001
                 log.warning("恢复快照失败: %s", e)
 
-        # 2. 启动容器状态缓存刷新（避免 telemetry 每帧都查 Docker API）
+        # 5. 启动容器状态缓存刷新（本地节点）
         docker_mgr.start_status_refresh(interval=1.0)
 
-        # 4. 启动遥测泵 (5 Hz: 把端到端反馈从 ~1s 压到 ~200ms)
-        tele = Telemetry(sim, docker_mgr, specs)
+        # 6. 启动遥测泵 (5 Hz)
+        # 统一的状态检查函数，覆盖本地和远端节点
+        specs_by_id = {s.id: s for s in specs}
+
+        def _is_running(node_id: int) -> bool:
+            spec = specs_by_id.get(node_id)
+            if spec is None:
+                return False
+            if spec.host == "local":
+                return docker_mgr.is_running(node_id)
+            mgr = remote_mgrs.get(spec.host)
+            return mgr.is_running(node_id) if mgr else False
+
+        tele = Telemetry(sim, docker_mgr, specs, is_running_fn=_is_running)
         await tele.start(period=0.2)
 
         with self._lock:
             self.config = cfg
             self.docker_mgr = docker_mgr
+            self.remote_mgrs = remote_mgrs
             self.sim = sim
             self.telemetry = tele
             self.specs = specs
@@ -163,10 +260,13 @@ class Session:
         把上一次仿真留下的 docker 容器/mesh-br/mesh-tap/mesh-veth 兜底删干净。
         """
         with self._lock:
-            sim, docker_mgr, tele, specs = self.sim, self.docker_mgr, self.telemetry, self.specs
+            sim, docker_mgr, remote_mgrs, tele, specs = (
+                self.sim, self.docker_mgr, self.remote_mgrs, self.telemetry, self.specs
+            )
             cfg = self.config
             last_preset = self.preset
             self.sim = self.docker_mgr = self.telemetry = None
+            self.remote_mgrs = {}
             self.specs = []
             self.preset = None
 
@@ -186,6 +286,16 @@ class Session:
                 await asyncio.to_thread(docker_mgr.stop_all)
             except Exception as e:  # noqa: BLE001
                 log.warning("docker_mgr.stop_all() 抛异常: %s", e)
+        # 停止所有远端节点
+        for host_ip, mgr in remote_mgrs.items():
+            try:
+                await asyncio.to_thread(mgr.stop_all)
+            except Exception as e:  # noqa: BLE001
+                log.warning("remote_mgr %s stop_all() 抛异常: %s", host_ip, e)
+            try:
+                mgr.close()
+            except Exception as e:  # noqa: BLE001
+                log.warning("remote_mgr %s close() 抛异常: %s", host_ip, e)
         # 用配置中的 n_nodes 而不是实际启动的容器数，
         # 确保 ns-3 创建的所有 tap 接口都被清理
         try:

@@ -8,6 +8,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
+from collections.abc import Callable
 from typing import Any
 
 from .config import NodeSpec
@@ -93,9 +94,16 @@ def _aggregate_pairs(
 class Telemetry:
     """聚合状态为 JSON 可序列化帧；向 WebSocket 订阅者广播。"""
 
-    def __init__(self, sim: SimRunner, docker: DockerMgr, specs: list[NodeSpec]):
+    def __init__(
+        self,
+        sim: SimRunner,
+        docker: DockerMgr,
+        specs: list[NodeSpec],
+        is_running_fn: Callable[[int], bool] | None = None,
+    ):
         self.sim = sim
         self.docker = docker
+        self.is_running_fn = is_running_fn
         self.specs_by_id = {s.id: s for s in specs}
         self._subscribers: set[asyncio.Queue[dict[str, Any]]] = set()
         self._task: asyncio.Task[None] | None = None
@@ -119,7 +127,10 @@ class Telemetry:
         sim_flows = self.sim.snapshot_flows()
         nodes_out = []
         for spec in self.specs_by_id.values():
-            online = self.docker.is_running(spec.id)
+            if self.is_running_fn is not None:
+                online = self.is_running_fn(spec.id)
+            else:
+                online = self.docker.is_running(spec.id)
             nodes_out.append(_node_frame(spec, sim_nodes.get(spec.id), online))
         # 节点对聚合：把 5-tuple flow 折叠成 (srcId, dstId) 维度
         ip_to_id = {spec.ip: spec.id for spec in self.specs_by_id.values()}

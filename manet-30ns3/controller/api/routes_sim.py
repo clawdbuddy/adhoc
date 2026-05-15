@@ -54,7 +54,11 @@ async def status() -> dict[str, Any]:
         "elapsed": sim.elapsed if sim else 0.0,
         "totalNodes": sess.config.n_nodes if sess.running else 0,
         "nodesOnline": sum(
-            1 for s in sess.specs if sess.docker_mgr and sess.docker_mgr.is_running(s.id)
+            1 for s in sess.specs
+            if (
+                (s.host == "local" and sess.docker_mgr and sess.docker_mgr.is_running(s.id))
+                or (s.host != "local" and sess.remote_mgrs.get(s.host) and sess.remote_mgrs[s.host].is_running(s.id))
+            )
         ),
         "preset": sess.preset,
         "macModeActual": sim.mac_mode_actual if sim else "",

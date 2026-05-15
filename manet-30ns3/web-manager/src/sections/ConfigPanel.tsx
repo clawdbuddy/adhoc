@@ -1,3 +1,4 @@
+import { useState, useEffect, useCallback } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -13,9 +14,15 @@ import {
   PROPAGATION_DELAYS, RATE_CONTROLS, MAC_MODES, ROUTING_PROTOCOLS,
   MOBILITY_MODELS, GRID_LAYOUTS, RW_MODES,
 } from '@/types/config';
-import type { SimConfig } from '@/types/config';
+import type { SimConfig, NodeSpec } from '@/types/config';
 import { PRESET_NAMES } from '@/hooks/useSimConfig';
-import { Save, RotateCcw, Download, Upload, Radio, Wifi, Route, MapPin, BarChart3, AlertTriangle, CheckCircle2, XCircle, Loader2 } from 'lucide-react';
+import { Save, RotateCcw, Download, Upload, Radio, Wifi, Route, MapPin, BarChart3, AlertTriangle, CheckCircle2, XCircle, Loader2, Server } from 'lucide-react';
+
+interface RemoteHost {
+  ip: string;
+  ssh_user: string;
+  capacity: number;
+}
 
 interface ConfigPanelProps {
   config: SimConfig;
@@ -27,10 +34,12 @@ interface ConfigPanelProps {
   resetToDefault: () => void;
   exportConfig: () => string;
   importConfig: (text: string) => void;
+  onNodeSpecsChange?: (specs: NodeSpec[] | undefined) => void;
 }
 
 export function ConfigPanel({
   config, activePreset, presets, saveStatus, updateConfig, loadPreset, resetToDefault, exportConfig, importConfig,
+  onNodeSpecsChange,
 }: ConfigPanelProps) {
   const handleImport = () => {
     const input = document.createElement('input');
@@ -55,6 +64,83 @@ export function ConfigPanel({
     a.download = 'simulation.conf';
     a.click();
     URL.revokeObjectURL(url);
+  };
+
+  // ---- 多机部署: 节点主机分配 ----
+  const [nodeHosts, setNodeHosts] = useState<Record<number, string>>({});
+  const [remoteHosts, setRemoteHosts] = useState<RemoteHost[]>([]);
+  const [showHostAssign, setShowHostAssign] = useState(false);
+
+  // 拉取已注册远端主机列表
+  useEffect(() => {
+    fetch('/api/hosts')
+      .then(r => r.ok ? r.json() : [])
+      .then(data => setRemoteHosts(Array.isArray(data) ? data : []))
+      .catch(() => setRemoteHosts([]));
+  }, []);
+
+  // 当节点数变化时，初始化未设置的节点为 local
+  useEffect(() => {
+    setNodeHosts(prev => {
+      const next: Record<number, string> = {};
+      for (let i = 0; i < config.nNodes; i++) {
+        next[i] = prev[i] ?? 'local';
+      }
+      return next;
+    });
+  }, [config.nNodes]);
+
+  // 生成 NodeSpec 数组并通知父组件
+  const generateNodeSpecs = useCallback((): NodeSpec[] | undefined => {
+    const hasRemote = Object.values(nodeHosts).some(h => h !== 'local');
+    if (!hasRemote) return undefined;
+
+    const specs: NodeSpec[] = [];
+    for (let i = 0; i < config.nNodes; i++) {
+      const host = nodeHosts[i] ?? 'local';
+      let role = 'client';
+      if (i === 0) role = 'server';
+      else if (i === 15 && config.nNodes > 15) role = 'gateway';
+      specs.push({
+        id: i,
+        ip: `192.168.100.${10 + i}`,
+        role,
+        host,
+      });
+    }
+    return specs;
+  }, [nodeHosts, config.nNodes]);
+
+  // 通知父组件分配变化
+  useEffect(() => {
+    if (onNodeSpecsChange) {
+      const specs = generateNodeSpecs();
+      onNodeSpecsChange(specs);
+    }
+  }, [nodeHosts, config.nNodes, onNodeSpecsChange, generateNodeSpecs]);
+
+  const autoAssignHosts = () => {
+    const hosts = ['local', ...remoteHosts.map(h => h.ip)];
+    const capacities = [Infinity, ...remoteHosts.map(h => h.capacity)];
+    const used: Record<string, number> = {};
+    hosts.forEach(h => used[h] = 0);
+
+    const next: Record<number, string> = {};
+    for (let i = 0; i < config.nNodes; i++) {
+      // 找到剩余容量最多的主机
+      let bestHost = 'local';
+      let bestCap = -1;
+      for (let j = 0; j < hosts.length; j++) {
+        const remaining = capacities[j] - (used[hosts[j]] || 0);
+        if (remaining > bestCap) {
+          bestCap = remaining;
+          bestHost = hosts[j];
+        }
+      }
+      next[i] = bestHost;
+      used[bestHost] = (used[bestHost] || 0) + 1;
+    }
+    setNodeHosts(next);
   };
 
   return (
@@ -219,6 +305,75 @@ export function ConfigPanel({
                 <Input placeholder="e.g. Manet30Nodes,AodvRoutingProtocol" value={config.logComponents}
                   onChange={e => updateConfig('logComponents', e.target.value)} className="h-9"
                 />
+              </div>
+
+              {/* 多机部署: 节点主机分配 */}
+              <div className="col-span-2 md:col-span-4 border-t pt-4 mt-2"
+              >
+                <div className="flex items-center gap-3 mb-3"
+                >
+                  <Server className="h-4 w-4 text-primary" />
+                  <h4 className="text-sm font-semibold"
+                  >多机部署</h4>
+                  <Button
+                    variant="ghost" size="sm" className="h-7 text-xs"
+                    onClick={() => setShowHostAssign(v => !v)}
+                  >
+                    {showHostAssign ? '收起' : '展开'}
+                  </Button>
+                  <div className="flex-1" />
+                  <Button
+                    variant="outline" size="sm" className="h-7 text-xs gap-1"
+                    onClick={autoAssignHosts}
+                    disabled={remoteHosts.length === 0}
+                  >
+                    自动分配
+                  </Button>
+                </div>
+
+                {showHostAssign && (
+                  <div className="space-y-3"
+                  >
+                    {remoteHosts.length === 0 && (
+                      <p className="text-xs text-muted-foreground"
+                      >
+                        尚未注册远端主机。请先用 <code className="bg-muted px-1 rounded"
+                        >POST /api/hosts/register</code> 注册。
+                      </p>
+                    )}
+                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-2"
+                    >
+                      {Array.from({ length: config.nNodes }, (_, i) => (
+                        <div key={i} className="space-y-1"
+                        >
+                          <Label className="text-[10px] font-medium text-muted-foreground"
+                          >节点 {i} ({`192.168.100.${10 + i}`})</Label>
+                          <Select
+                            value={nodeHosts[i] ?? 'local'}
+                            onValueChange={v => setNodeHosts(prev => ({ ...prev, [i]: v }))}
+                          >
+                            <SelectTrigger className="h-8 text-xs"
+                            >
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="local"
+                              >本地</SelectItem>
+                              {remoteHosts.map(h => (
+                                <SelectItem key={h.ip} value={h.ip}
+                                >{h.ip}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      ))}
+                    </div>
+                    <p className="text-[11px] text-muted-foreground"
+                    >
+                      {'提示: 节点 0 默认是 server，节点 15 默认是 gateway（当节点数 >15 时）。'}
+                    </p>
+                  </div>
+                )}
               </div>
             </CardContent>
           </Card>

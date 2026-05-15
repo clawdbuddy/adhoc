@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import type { NodeStatus, FlowStats, NodePairFlow, SimulationStatus, SimConfig, TelemetryEnv, ParamResult, ParamBatchResult, ParamChangeMsg } from '@/types/config';
+import type { NodeStatus, FlowStats, NodePairFlow, SimulationStatus, SimConfig, TelemetryEnv, ParamResult, ParamBatchResult, ParamChangeMsg, NodeSpec } from '@/types/config';
 
 // API + WS 基础 URL。生产环境中 FastAPI 控制器与前端页面同源提供；
 // 开发模式下（vite 在 :3000）vite.config.ts 中的代理将 /api 和 /ws 转发到 localhost:8000。
@@ -252,13 +252,17 @@ export function useSimulation(initialNnodes: number = 5) {
   }, [connectWs]);
 
   // ---- REST control ----
-  const startSimulation = useCallback(async (config?: SimConfig, preset?: string) => {
+  const startSimulation = useCallback(async (config?: SimConfig, preset?: string, nodes?: NodeSpec[]) => {
     addLog(`[api] POST /api/sim/start`);
     try {
+      const body: Record<string, unknown> = { config, preset };
+      if (nodes && nodes.length > 0) {
+        body.nodes = nodes;
+      }
       const res = await fetch(`${API_BASE}/api/sim/start`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ config, preset }),
+        body: JSON.stringify(body),
       });
       if (!res.ok) {
         const text = await res.text();
