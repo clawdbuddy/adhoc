@@ -7,7 +7,6 @@
 from __future__ import annotations
 
 import struct
-from typing import Self
 
 
 class UdpFrame:
@@ -34,7 +33,7 @@ class UdpFrame:
         return header + length + self.payload
 
     @classmethod
-    def decode(cls, data: bytes) -> Self:
+    def decode(cls, data: bytes) -> "UdpFrame":
         if len(data) < cls.HEADER_SIZE:
             raise ValueError(f"帧太短: {len(data)} < {cls.HEADER_SIZE}")
         comm_type, res1, res2, cmd_id = struct.unpack(cls.HEADER_FMT, data[:5])
