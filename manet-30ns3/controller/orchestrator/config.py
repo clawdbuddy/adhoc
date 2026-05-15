@@ -192,6 +192,14 @@ class SimConfig(_CamelModel):
     onoff_start_time: float = 1.0
     onoff_sink_port: int = 5000
 
+    # --- UDP 协议扩展字段（api_54.docx）---
+    # 这些字段供电台控制管理软件通过 UDP 二进制协议读写，
+    # 部分参数（work_mode / fh_table_id）在仿真内部无直接对应，仅作协议兼容存储。
+    work_mode: int = Field(default=0, ge=0, le=5)
+    fh_table_id: int = Field(default=0, ge=0, le=19)
+    node_mac_id: int = Field(default=0, ge=0, le=127)
+    software_version: str = Field(default="V1.00.03")
+
     # ----- helpers -----------------------------------------------------------
     def merged_with(self, partial: Mapping[str, Any]) -> "SimConfig":
         """Return a copy with `partial` overrides (accepts camelCase or snake_case)."""

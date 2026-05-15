@@ -23,9 +23,13 @@ from fastapi.staticfiles import StaticFiles
 
 from controller.api import routes_config, routes_dynamic, routes_hosts, routes_nodes, routes_sim, ws_radio, ws_telemetry
 from controller.api.state import get_session
+from controller.orchestrator.udp_service import UdpService
 
 log = logging.getLogger("manet.api")
 logging.basicConfig(level=os.environ.get("LOG_LEVEL", "INFO"))
+
+# UDP 协议服务单例（在 lifespan 中初始化和关闭）
+_udp_service: UdpService | None = None
 
 
 def _kill_stale_ns3_processes() -> None:
@@ -75,14 +79,30 @@ def _kill_stale_ns3_processes() -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    global _udp_service
     log.info("MANET 控制器启动")
     _kill_stale_ns3_processes()
     # 预导入 ns-3 绑定，摊销 cppyy JIT 编译成本到启动阶段
     _preload_ns3()
+
+    # 启动 UDP 二进制协议服务（api_54.docx）
+    udp_host = os.environ.get("MANET_UDP_BIND", "0.0.0.0")
+    try:
+        udp_port = int(os.environ.get("MANET_UDP_PORT", "62450"))
+    except ValueError:
+        udp_port = 62450
+    _udp_service = UdpService(udp_host, udp_port)
+    await _udp_service.start()
+
     try:
         yield
     finally:
         log.info("MANET 控制器关闭")
+        if _udp_service is not None:
+            try:
+                await _udp_service.stop()
+            except Exception:  # noqa: BLE001
+                log.exception("关闭 UDP 服务出错")
         sess = get_session()
         if sess.running:
             try:
