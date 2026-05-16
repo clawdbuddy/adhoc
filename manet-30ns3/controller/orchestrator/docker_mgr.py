@@ -127,6 +127,20 @@ class DockerMgr:
         if not pid:
             raise RuntimeError(f"容器 {name} 启动后没有 PID")
 
+        # 验证 PID 对应的 /proc/<pid>/ns/net 是否存在
+        import os as _os
+        import time as _time
+        ns_path = f"/proc/{pid}/ns/net"
+        for attempt in range(5):
+            if _os.path.exists(ns_path):
+                break
+            _time.sleep(0.3)
+            container.reload()
+            pid = container.attrs["State"]["Pid"]
+            ns_path = f"/proc/{pid}/ns/net"
+        if not _os.path.exists(ns_path):
+            raise RuntimeError(f"容器 {name} PID {pid} 的 /proc/<pid>/ns/net 不存在")
+
         # 配置网络：创建每节点独立桥、veth，将 peer 移入 netns，创建 tap
         veth_host = f"mesh-veth{spec.id}"
         veth_peer = f"mesh-vethns{spec.id}"
