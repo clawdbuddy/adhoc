@@ -115,9 +115,15 @@ class DockerMgr:
             volumes=volumes,
         )
 
-        # 刷新属性以读取 PID
-        container.reload()
-        pid = container.attrs["State"]["Pid"]
+        # 刷新属性以读取 PID（容器启动可能需要时间，重试 3 次）
+        pid = None
+        for attempt in range(3):
+            container.reload()
+            pid = container.attrs["State"]["Pid"]
+            if pid:
+                break
+            import time
+            time.sleep(0.5)
         if not pid:
             raise RuntimeError(f"容器 {name} 启动后没有 PID")
 
