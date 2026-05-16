@@ -171,7 +171,16 @@ export function useSimulation(initialNnodes: number = 5) {
 
   // ---- WebSocket subscription, with auto-reconnect ----
   const connectWs = useCallback(() => {
-    if (wsRef.current) return;
+    // 互斥：清理旧连接和重连定时器
+    if (wsRef.current) {
+      wsRef.current.onclose = null; // 阻止旧 socket close 再次触发重连
+      wsRef.current.close();
+      wsRef.current = null;
+    }
+    if (reconnectTimerRef.current !== null) {
+      clearTimeout(reconnectTimerRef.current);
+      reconnectTimerRef.current = null;
+    }
     const url = wsUrl('/ws/telemetry');
     let ws: WebSocket;
     try {
@@ -242,6 +251,12 @@ export function useSimulation(initialNnodes: number = 5) {
   useEffect(() => {
     connectWs();
     return () => {
+      // 清理 pending requests，避免 setState on unmounted component
+      pendingRef.current.forEach(({ reject, timer }) => {
+        clearTimeout(timer);
+        reject(new Error('component unmounted'));
+      });
+      pendingRef.current.clear();
       if (reconnectTimerRef.current) clearTimeout(reconnectTimerRef.current);
       if (wsRef.current) {
         wsRef.current.onclose = null;  // suppress reconnect on unmount

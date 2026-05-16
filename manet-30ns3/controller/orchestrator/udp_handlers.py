@@ -244,8 +244,20 @@ class UdpCommandHandler:
         sess = get_session()
         tx_power = sess.param_store.get("txPower").get("value", [33.0])
         dbm = tx_power[0] if isinstance(tx_power, list) else tx_power
-        level = POWER_LEVEL_REVERSE.get(float(dbm), 0)
-        return UdpFrame(comm_type=1, cmd_id=0x0182, payload=bcd1_encode(level))
+        dbm = float(dbm)
+        # 最近匹配（公差 0.5 dBm 内），避免浮点精度导致反向查找 miss
+        best_level = 0
+        best_diff = float("inf")
+        for level, ref_dbm in POWER_LEVEL_MAP.items():
+            diff = abs(dbm - ref_dbm)
+            if diff < best_diff:
+                best_diff = diff
+                best_level = level
+        if best_diff > 0.5:
+            best_level = POWER_LEVEL_REVERSE.get(
+                min(POWER_LEVEL_REVERSE, key=lambda k: abs(k - dbm)), 0
+            )
+        return UdpFrame(comm_type=1, cmd_id=0x0182, payload=bcd1_encode(best_level))
 
     # ------------------------------------------------------------------ 版本
 

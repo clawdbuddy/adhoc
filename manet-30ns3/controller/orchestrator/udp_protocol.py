@@ -65,21 +65,23 @@ def bcd4_to_mhz(data: bytes) -> float:
     """
     if len(data) != 4:
         raise ValueError(f"BCD4 需要 4 字节，收到 {len(data)}")
-    d1000m = data[0] & 0x0F
-    d100m = (data[1] >> 4) & 0x0F
-    d10m = data[1] & 0x0F
-    d1m = (data[2] >> 4) & 0x0F
-    d100k = data[2] & 0x0F
-    d10k = (data[3] >> 4) & 0x0F
-    d1k = data[3] & 0x0F
+    nibbles = [
+        data[0] & 0x0F,
+        (data[1] >> 4) & 0x0F, data[1] & 0x0F,
+        (data[2] >> 4) & 0x0F, data[2] & 0x0F,
+        (data[3] >> 4) & 0x0F, data[3] & 0x0F,
+    ]
+    for n in nibbles:
+        if n > 9:
+            raise ValueError(f"无效 BCD nibble: {n}, 原始数据: {data.hex()}")
     return (
-        d1000m * 1000.0
-        + d100m * 100.0
-        + d10m * 10.0
-        + d1m
-        + d100k * 0.1
-        + d10k * 0.01
-        + d1k * 0.001
+        nibbles[0] * 1000.0
+        + nibbles[1] * 100.0
+        + nibbles[2] * 10.0
+        + nibbles[3]
+        + nibbles[4] * 0.1
+        + nibbles[5] * 0.01
+        + nibbles[6] * 0.001
     )
 
 
@@ -88,6 +90,9 @@ def mhz_to_bcd4(mhz: float) -> bytes:
     mhz = round(mhz, 3)
     whole = int(mhz)
     frac = int(round((mhz - whole) * 1000))
+
+    if whole >= 10000:
+        raise ValueError(f"频率 {mhz} MHz 超出 BCD4 范围 (>= 10000 MHz)")
 
     d1000m = (whole // 1000) & 0x0F
     whole %= 1000
@@ -113,7 +118,11 @@ def bcd1_to_int(data: bytes) -> int:
     """1 字节压缩 BCD → int。"""
     if len(data) != 1:
         raise ValueError(f"BCD1 需要 1 字节，收到 {len(data)}")
-    return ((data[0] >> 4) & 0x0F) * 10 + (data[0] & 0x0F)
+    tens = (data[0] >> 4) & 0x0F
+    ones = data[0] & 0x0F
+    if tens > 9 or ones > 9:
+        raise ValueError(f"无效 BCD 字节: 0x{data[0]:02X}")
+    return tens * 10 + ones
 
 
 def int_to_bcd1(val: int) -> bytes:

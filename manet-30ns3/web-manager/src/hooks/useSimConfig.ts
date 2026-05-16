@@ -6,7 +6,7 @@ const API_BASE = '';
 // 极小的本地 fallback，用于 API 尚未返回前的占位。
 // 权威预设定义在后端 controller/orchestrator/config.py:PRESETS 中。
 const FALLBACK_CONFIG: SimConfig = {
-  nNodes: 6, simulationTime: 300, seed: 1, run: 1, logComponents: '',
+  nNodes: 5, simulationTime: 300, seed: 1, run: 1, logComponents: '',
   standard: '80211n-2.4GHz', phyModel: 'yans', frequencyMhz: 2412, channelWidthMhz: 20, rangeTargetM: 4000,
   dataRate: 'HtMcs7',
   txPowerStart: 30, txPowerEnd: 30, txPowerLevels: 1,
@@ -18,7 +18,7 @@ const FALLBACK_CONFIG: SimConfig = {
   ricianK: 9.0,
   enableObstacles: false, obstacleShadowingSigma: 4.0, obstaclePenetrationLoss: 10.0,
   obstacleDiffractionEnabled: true, obstaclesJson: '[]',
-  ssid: 'mesh-network', bssid: '00:00:00:00:AD:H0',
+  ssid: 'adhoc-30ns3', bssid: '00:00:00:00:AD:H0',
   macMode: 'mesh', rateControl: 'Constant', rtsCtsThreshold: 2200, fragmentationThreshold: 2200,
   nonUnicastMode: false, beaconInterval: 100, cwMin: 15, cwMax: 1023,
   routingProtocol: 'aodv', aodvHelloInterval: 1, aodvRreqRetries: 2,
@@ -32,6 +32,8 @@ const FALLBACK_CONFIG: SimConfig = {
   pcapPrefix: 'manet-30nodes-adhoc', enableMobilityTrace: false,
   trafficMode: 'tap', onoffDataRate: '6Mbps', onoffPacketSize: 1024,
   onoffMaxBytes: 0, onoffStartTime: 1.0, onoffSinkPort: 5000,
+  tapMode: 'UseLocal', tapPrefix: 'mesh-tap-',
+  workMode: 0, fhTableId: 0, nodeMacId: 0, softwareVersion: 'V1.00.03',
 };
 
 // 按钮显示名映射（后端 /api/sim/presets 只返回扁平 SimConfig，没有 name 字段）
@@ -42,6 +44,12 @@ export const PRESET_NAMES: Record<string, string> = {
   debug: '调试 / 最小配置',
   tactical: '战术 / 10节点',
   throughput: '极限吞吐 / 2节点',
+  'wifi-band-test-2.4g': 'WiFi 2.4GHz 频段',
+  'wifi-band-test-5g': 'WiFi 5GHz 频段',
+  'wifi-bandwidth-test-20m': 'WiFi 20MHz 带宽',
+  'wifi-bandwidth-test-40m': 'WiFi 40MHz 带宽',
+  'wifi-distance-test': 'WiFi 距离渐变',
+  'wifi-adhoc-multihop': 'WiFi 大规模拓扑',
 };
 
 interface SimApi {
@@ -52,6 +60,7 @@ interface SimApi {
 export function useSimConfig(sim?: SimApi) {
   const [presets, setPresets] = useState<Record<string, SimConfig> | null>(null);
   const [ready, setReady] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [config, setConfig] = useState<SimConfig>({ ...FALLBACK_CONFIG });
   const [activePreset, setActivePreset] = useState<string>('default');
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
@@ -62,7 +71,7 @@ export function useSimConfig(sim?: SimApi) {
   useEffect(() => {
     Promise.all([
       fetch(`${API_BASE}/api/config`).then(r => r.ok ? r.json() : null).catch(() => null),
-      fetch(`${API_BASE}/api/sim/presets`).then(r => r.json()).catch(() => ({} as Record<string, SimConfig>)),
+      fetch(`${API_BASE}/api/sim/presets`).then(r => r.ok ? r.json() : (() => { throw new Error(`HTTP ${r.status}`); })()).catch(() => ({} as Record<string, SimConfig>)),
     ]).then(([saved, presetData]) => {
       setPresets(presetData);
       if (saved && typeof saved === 'object' && !Array.isArray(saved)) {
@@ -70,7 +79,8 @@ export function useSimConfig(sim?: SimApi) {
         setConfig(prev => ({ ...prev, ...saved }));
       }
       setReady(true);
-    }).catch(() => {
+    }).catch((e) => {
+      setError(`加载配置失败: ${(e as Error).message}`);
       setReady(true);
     });
   }, []);
@@ -225,6 +235,7 @@ export function useSimConfig(sim?: SimApi) {
     config,
     activePreset,
     ready,
+    error,
     presets,
     saveStatus,
     updateConfig,

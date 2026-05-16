@@ -47,13 +47,11 @@ class UdpProtocol(asyncio.DatagramProtocol):
 
         try:
             response = await self.handler.handle(frame)
+            if response is not None and self.transport is not None:
+                self.transport.sendto(response.encode(), addr)
+                log.debug("UDP 响应 -> %s: %s", addr, response)
         except Exception:
             log.exception("UDP 命令处理异常 from %s", addr)
-            return
-
-        if response is not None and self.transport is not None:
-            self.transport.sendto(response.encode(), addr)
-            log.debug("UDP 响应 -> %s: %s", addr, response)
 
 
 class UdpService:
@@ -125,8 +123,12 @@ class UdpService:
                 )
                 if topo_frame is not None:
                     raw = topo_frame.encode()
-                    for addr in self._subscribers:
-                        self._transport.sendto(raw, addr)
+                    for addr in list(self._subscribers):
+                        try:
+                            self._transport.sendto(raw, addr)
+                        except Exception:
+                            self._subscribers.discard(addr)
+                            log.debug("移除无响应订户 %s", addr)
             except Exception:
                 log.exception("拓扑上报失败")
 
@@ -134,8 +136,11 @@ class UdpService:
             try:
                 status_frame = self._build_status_report()
                 raw = status_frame.encode()
-                for addr in self._subscribers:
-                    self._transport.sendto(raw, addr)
+                for addr in list(self._subscribers):
+                    try:
+                        self._transport.sendto(raw, addr)
+                    except Exception:
+                        self._subscribers.discard(addr)
             except Exception:
                 log.exception("状态上报失败")
 
@@ -146,11 +151,11 @@ class UdpService:
             BYTE[0] = 1 (消息类别: 节点状态信息)
             BYTE[1] = 自组网状态 (0=未同步, 1=同步)
             BYTE[2] = 测控链状态 (0=未同步, 1=同步)
-            BYTE[3]-BYTE[6] = 32 位无符号异常代码 (0=无异常)
+            BYTE[3]-BYTE[6] = 32 位无符号异常代码 (0=无异常)  → 4 bytes
         """
         from controller.api.state import get_session
 
         sess = get_session()
         sync = 1 if sess.running else 0
-        payload = struct.pack(">BBBBI", 1, sync, sync, 0, 0)
+        payload = struct.pack(">BBBI", 1, sync, sync, 0)
         return UdpFrame(comm_type=1, cmd_id=0x02AF, payload=payload)

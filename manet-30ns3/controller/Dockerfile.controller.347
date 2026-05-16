@@ -1,6 +1,5 @@
 # NS-3 MANET 控制器 Dockerfile（NS-3.47 源码编译 / linux/amd64）
-# 与默认 Dockerfile.controller（NS-3.36 + pybindgen）并存。
-# NS-3.37 起 pybindgen 已被移除，3.47 只剩 cppyy 一条 Python 绑定路径。
+# NS-3.47 源码编译路线（与 Dockerfile.controller.pip pip 安装路线并存）。
 #
 # apt 源：中科大 mirrors.ustc.edu.cn
 # pip 源：腾讯 mirrors.cloud.tencent.com
@@ -41,7 +40,7 @@ RUN pip3 config set global.index-url https://mirrors.cloud.tencent.com/pypi/simp
     && pip3 config set global.trusted-host mirrors.cloud.tencent.com
 
 # --- 3. Python 运行时依赖 ---
-# cppyy: NS-3.47 唯一支持的 Python 绑定后端（pybindgen 已在 3.37 移除）。
+# cppyy: NS-3.47 Python 绑定后端。
 # 严格 pin 3.1.2 — 与 ns-3.42–3.47 测过；ABI 在 minor 间不稳，升级 NS-3 时同步对照
 # https://www.nsnam.org/docs/manual/html/python.html
 RUN python3 -m pip install --no-cache-dir --upgrade pip setuptools wheel \
@@ -52,7 +51,7 @@ RUN python3 -m pip install --no-cache-dir --upgrade pip setuptools wheel \
         docker==7.* pyroute2==0.7.* \
         websockets==12.* httpx==0.27.*
 
-# --- 4. ccache 加速（与 3.36 镜像共用 /ccache 卷时部分对象可复用） ---
+# --- 4. ccache 加速 ---
 ENV PATH="/usr/lib/ccache:$PATH"
 ENV CCACHE_DIR=/ccache
 RUN mkdir -p /ccache && ccache --max-size=10G

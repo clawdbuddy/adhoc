@@ -36,12 +36,11 @@ def _to_ns3_address(inet_addr: Any) -> Any:
         return inet_addr
 
 
-class _CppyyModuleProxy:
-    """让 cppyy 的扁平命名空间也能支持 `ns.core.Simulator` 这种子模块写法。
+class _ModuleProxy:
+    """代理已知子模块名，回退到 cppyy 根命名空间。
 
-    ns-3.47 cppyy 绑定中所有类都挂在 ns3 根命名空间下，但旧代码里大量出现
-    `ns.wifi.WifiHelper`、`ns.aodv.AodvHelper` 等子模块写法。本代理在子模块
-    命名空间找不到目标时，自动回退到扁平根命名空间，实现零改动兼容。
+    对已知的 ns-3 子模块名（如 wifi, mobility），cppyy 同时暴露为根属性。
+    若子模块路径未命中，代理回退到扁平根命名空间查找。
     """
 
     def __init__(self, ns):
@@ -51,17 +50,20 @@ class _CppyyModuleProxy:
         try:
             return getattr(self._ns, name)
         except AttributeError:
-            # 子模块命名空间（如 ns3::aodv）没有该类，回退到扁平根命名空间
             pass
-        # 如果根命名空间也没有，让原始异常抛出
         return getattr(self._ns, name)
 
 
 class _CppyyNsWrapper:
-    """包装 cppyy.gbl.ns3，优先返回扁平命名空间成员，缺失时回退到子模块代理。"""
+    """包装 cppyy.gbl.ns3，配合 ns-3.47 cppyy 扁平命名空间实现子模块写法兼容。
+
+    ns-3.47 cppyy 绑定中所有类都挂在 ns3 根命名空间下，但旧代码里大量出现
+    `ns.wifi.WifiHelper`、`ns.aodv.AodvHelper` 等子模块写法。已知子模块名
+    (core, wifi, mobility 等) 走根命名空间二次回退；未知属性直接透传给底层。
+    """
 
     # ns-3 子模块名列表；cppyy 中这些名字同时是根命名空间属性（ns3::aodv 等），
-    # 但类实际挂在根下，因此必须走代理做二次回退。
+    # 但类实际挂在根下，因此必须做二次回退。
     _MODULE_NAMES = frozenset({
         "core", "network", "internet", "wifi", "mobility", "tap_bridge",
         "flow_monitor", "propagation", "spectrum", "aodv", "olsr",
@@ -73,16 +75,16 @@ class _CppyyNsWrapper:
         self._proxies: dict[str, Any] = {}
 
     def __getattr__(self, name):
-        # 对已知子模块名一律走代理，让代理在"子模块空间 → 扁平根空间"回退；
-        # 其它名字若根命名空间有直接命中则立即返回。
         if name in self._MODULE_NAMES:
             if name not in self._proxies:
-                self._proxies[name] = _CppyyModuleProxy(self._ns)
+                self._proxies[name] = _ModuleProxy(self._ns)
             return self._proxies[name]
-        if hasattr(self._ns, name):
-            return getattr(self._ns, name)
         if name not in self._proxies:
-            self._proxies[name] = _CppyyModuleProxy(self._ns)
+            try:
+                val = getattr(self._ns, name)
+            except AttributeError:
+                raise AttributeError(f"ns3 has no attribute '{name}'") from None
+            self._proxies[name] = val
         return self._proxies[name]
 
 
@@ -151,8 +153,8 @@ class SimRunner:
         self._running = False
         self._start_time: float | None = None
         self._error: str | None = None
-        # 动态控制：线程安全命令队列 + ns-3 对象引用
-        self._command_queue: queue.Queue = queue.Queue()
+        # 动态控制：线程安全命令队列(maxsize 防无界增长) + ns-3 对象引用
+        self._command_queue: queue.Queue = queue.Queue(maxsize=500)
         self._nodes_container: Any = None
         self._wifi_devices: Any = None
         self._spectrum_channel: Any = None
@@ -171,7 +173,8 @@ class SimRunner:
         self._tap_bridge_helper: Any = None
         # 当前活跃节点集合（remove 后元素被移除,但 ns-3 NodeContainer 不会缩容）
         self._active_node_ids: set[int] = set()
-        # PHY 缓存：node_id → phy，避免动态命令时的四级回退
+        # PHY 缓存：node_id → phy，避免动态命令时的四级回退。
+        # 缓存生命周期绑定到单次仿真；节点增删时须调用 _invalidate_phy_cache()。
         self._phy_cache: dict[int, Any] = {}
         # 动态参数当前值（供遥测回传前端）
         self._env_state = EnvState(
@@ -223,6 +226,7 @@ class SimRunner:
         if self._wall_pacer_thread:
             self._wall_pacer_thread.join(timeout=2.0)
             self._wall_pacer_thread = None
+        self._phy_cache.clear()
         self._running = False
 
     @property
@@ -377,14 +381,8 @@ class SimRunner:
         wifi.SetStandard(self._wifi_standard(ns, cfg.standard))
         self._apply_rate_control(ns, wifi, cfg)
 
-        # 5. MAC：mac_mode="mesh" 启用 802.11s + HWMP，由 ns-3 mesh 模块在 L2
-        #    层完成多跳转发。NS-3.47 + cppyy 下 adhoc 模式会触发 Txop segfault，
-        #    因此强制使用 mesh 模式。
-        if cfg.mac_mode != "mesh":
-            log.warning(
-                "mac_mode='%s' 在 NS-3.47 + cppyy 下会导致 segfault，强制切换到 mesh",
-                cfg.mac_mode,
-            )
+        # 5. MAC：802.11s mesh + HWMP；mac_mode 由 config.py SimConfig validator
+        #    强制为 "mesh"（NS-3.47 + cppyy 下 adhoc 会触发 Txop segfault）。
         devices = self._install_mesh(ns, cfg, phy, nodes)
 
         # 6. Mobility
@@ -672,52 +670,6 @@ class SimRunner:
             m.SetAttribute("MaxRange", ns.core.DoubleValue(cfg.range_target_m))
             return m
         return None
-
-    @staticmethod
-    def _add_yans_path_loss(ns: Any, ch: Any, cfg: SimConfig) -> None:
-        pl = cfg.path_loss_model
-        freq_hz = float(cfg.frequency_mhz) * 1e6
-        if pl == "LogDistance":
-            ch.AddPropagationLoss(
-                "ns3::LogDistancePropagationLossModel",
-                "Exponent", ns.core.DoubleValue(cfg.path_loss_exponent),
-                "ReferenceLoss", ns.core.DoubleValue(cfg.path_loss_ref_loss),
-                "ReferenceDistance", ns.core.DoubleValue(cfg.path_loss_ref_distance),
-            )
-        elif pl == "FreeSpace":
-            ch.AddPropagationLoss(
-                "ns3::FriisPropagationLossModel",
-                "Frequency", ns.core.DoubleValue(freq_hz),
-                "MinLoss", ns.core.DoubleValue(0.0),
-            )
-        elif pl == "TwoRayGround":
-            ch.AddPropagationLoss(
-                "ns3::TwoRayGroundPropagationLossModel",
-                "Frequency", ns.core.DoubleValue(freq_hz),
-            )
-        elif pl == "ThreeLogDistance":
-            ch.AddPropagationLoss("ns3::ThreeLogDistancePropagationLossModel")
-        elif pl == "Cost231":
-            ch.AddPropagationLoss("ns3::Cost231PropagationLossModel")
-        elif pl == "Range":
-            ch.AddPropagationLoss(
-                "ns3::RangePropagationLossModel",
-                "MaxRange", ns.core.DoubleValue(cfg.range_target_m),
-            )
-
-    @staticmethod
-    def _add_yans_fading(ns: Any, ch: Any, cfg: SimConfig) -> None:
-        if cfg.fading_model == "Nakagami":
-            ch.AddPropagationLoss(
-                "ns3::NakagamiPropagationLossModel",
-                "m0", ns.core.DoubleValue(cfg.nakagami_m0),
-                "m1", ns.core.DoubleValue(cfg.nakagami_m1),
-                "m2", ns.core.DoubleValue(cfg.nakagami_m2),
-                "Distance1", ns.core.DoubleValue(cfg.nakagami_d1),
-                "Distance2", ns.core.DoubleValue(cfg.nakagami_d2),
-            )
-        elif cfg.fading_model == "Jakes":
-            ch.AddPropagationLoss("ns3::JakesPropagationLossModel")
 
     # ---- fading / shadowing / obstacle helpers ------------------------------
     @staticmethod
@@ -1201,7 +1153,7 @@ class SimRunner:
         仅调用现有 MobilityModel 的 SetPosition，不替换对象，
         避免与 Simulator::Run() 线程发生 race。
         """
-        if node_id >= self.config.n_nodes:
+        if node_id < 0 or node_id >= self.config.n_nodes:
             return {"applied": False, "reason": "node_id out of range"}
 
         def _do():
@@ -1224,7 +1176,7 @@ class SimRunner:
 
     def set_tx_power(self, node_id: int, dbm: float) -> dict[str, Any]:
         """修改指定节点的发射功率（线程安全）。"""
-        if node_id >= self.config.n_nodes:
+        if node_id < 0 or node_id >= self.config.n_nodes:
             return {"applied": False, "reason": "node_id out of range"}
 
         def _do():
@@ -1246,7 +1198,7 @@ class SimRunner:
 
     def set_rx_sensitivity(self, node_id: int, dbm: float) -> dict[str, Any]:
         """修改指定节点的接收灵敏度（线程安全）。"""
-        if node_id >= self.config.n_nodes:
+        if node_id < 0 or node_id >= self.config.n_nodes:
             return {"applied": False, "reason": "node_id out of range"}
 
         def _do():
@@ -1390,10 +1342,9 @@ class SimRunner:
                         cmd()
                     except Exception as e:  # noqa: BLE001
                         log.warning("dynamic command failed: %s", e)
-                # 2. 刷新位置快照 + 邻居 + tap 接口计数器
+                # 2. 刷新位置快照 + 邻居（在锁内，快速操作）
                 with self._lock:
                     n_nodes = self.config.n_nodes
-                    tap_prefix = self.config.tap_prefix
                     # 必须用 _env_state.range_target_m（动态控制可能已修改），
                     # 不能用 self.config.range_target_m（启动时的静态快照）。
                     max_range = self._env_state.range_target_m
@@ -1423,71 +1374,81 @@ class SimRunner:
                             if math.hypot(ni.x - nj.x, ni.y - nj.y) <= max_range:
                                 neighbors.append(j)
                         ni.neighbors = neighbors
-                    # 2c. tap 接口 RX/TX(真实容器流量,FlowMonitor 看不到)
-                    for i in range(n_nodes):
-                        nr = self._nodes_runtime.get(i)
-                        if not nr:
-                            continue
-                        try:
-                            with open(f"/sys/class/net/{tap_prefix}{i}/statistics/rx_packets") as fh:
-                                nr.rx_packets = int(fh.read().strip())
-                            with open(f"/sys/class/net/{tap_prefix}{i}/statistics/tx_packets") as fh:
-                                nr.tx_packets = int(fh.read().strip())
-                        except Exception:  # noqa: BLE001
-                            pass
-                    # 2d. FlowMonitor 统计 (ns-3.47 cppyy 不支持 Simulator.Schedule
-                    #     传入 Python callback，改在 wall-time 线程懒更新)
-                    #     使用增量更新替代全量 clear+重建，减少 GC 压力
-                    if self._fm is not None:
-                        try:
-                            self._fm.CheckForLostPackets()
-                            stats = self._fm.GetFlowStats()
-                            classifier = None
-                            if hasattr(self._fm, "GetClassifier"):
-                                classifier = self._fm.GetClassifier()
-                            seen: set[int] = set()
-                            for fid, st in stats:
-                                seen.add(fid)
-                                source, destination = "", ""
-                                if classifier:
-                                    ft = classifier.FindFlow(fid)
-                                    source = str(ft.sourceAddress)
-                                    destination = str(ft.destinationAddress)
-                                elapsed = max(
-                                    (st.timeLastRxPacket.GetSeconds()
-                                     - st.timeFirstTxPacket.GetSeconds()),
-                                    1e-9,
-                                )
-                                throughput_mbps = (st.rxBytes * 8.0) / elapsed / 1e6
-                                avg_delay = (st.delaySum.GetSeconds() / st.rxPackets) \
-                                    if st.rxPackets else 0.0
+                # 2c. tap 接口 RX/TX(真实容器流量,FlowMonitor 看不到) —— 文件 I/O 在锁外
+                tap_prefix = self.config.tap_prefix
+                with self._lock:
+                    node_ids = list(self._nodes_runtime.keys())
+                for i in node_ids:
+                    try:
+                        with open(f"/sys/class/net/{tap_prefix}{i}/statistics/rx_packets") as fh:
+                            rx = int(fh.read().strip())
+                        with open(f"/sys/class/net/{tap_prefix}{i}/statistics/tx_packets") as fh:
+                            tx = int(fh.read().strip())
+                        with self._lock:
+                            nr = self._nodes_runtime.get(i)
+                            if nr:
+                                nr.rx_packets = rx
+                                nr.tx_packets = tx
+                    except Exception:  # noqa: BLE001
+                        pass
+                # 2d. FlowMonitor 统计 (ns-3.47 cppyy 不支持 Simulator.Schedule
+                #     传入 Python callback，改在 wall-time 线程懒更新)
+                #     使用增量更新替代全量 clear+重建，减少 GC 压力
+                if self._fm is not None:
+                    try:
+                        self._fm.CheckForLostPackets()
+                        stats = self._fm.GetFlowStats()
+                        classifier = None
+                        if hasattr(self._fm, "GetClassifier"):
+                            classifier = self._fm.GetClassifier()
+                        # 在锁外构建新数据，锁内仅做交换
+                        flows_batch: dict[int, FlowRuntime] = {}
+                        seen: set[int] = set()
+                        for fid, st in stats:
+                            seen.add(fid)
+                            source, destination = "", ""
+                            if classifier:
+                                ft = classifier.FindFlow(fid)
+                                source = str(ft.sourceAddress)
+                                destination = str(ft.destinationAddress)
+                            elapsed = max(
+                                (st.timeLastRxPacket.GetSeconds()
+                                 - st.timeFirstTxPacket.GetSeconds()),
+                                1e-3,  # 最小 1ms 避免溢出
+                            )
+                            throughput_mbps = (st.rxBytes * 8.0) / elapsed / 1e6
+                            avg_delay = (st.delaySum.GetSeconds() / st.rxPackets) \
+                                if st.rxPackets else 0.0
+                            flows_batch[fid] = FlowRuntime(
+                                flow_id=fid,
+                                source=source,
+                                destination=destination,
+                                tx_packets=st.txPackets,
+                                rx_packets=st.rxPackets,
+                                lost_packets=st.lostPackets,
+                                avg_delay=avg_delay,
+                                throughput=throughput_mbps,
+                            )
+                        # 增量合并到共享存储
+                        with self._lock:
+                            for fid, fr in flows_batch.items():
                                 existing = self._flows_runtime.get(fid)
                                 if existing is not None:
-                                    # 增量更新已有对象，避免频繁创建新对象
-                                    existing.source = source
-                                    existing.destination = destination
-                                    existing.tx_packets = st.txPackets
-                                    existing.rx_packets = st.rxPackets
-                                    existing.lost_packets = st.lostPackets
-                                    existing.avg_delay = avg_delay
-                                    existing.throughput = throughput_mbps
+                                    existing.source = fr.source
+                                    existing.destination = fr.destination
+                                    existing.tx_packets = fr.tx_packets
+                                    existing.rx_packets = fr.rx_packets
+                                    existing.lost_packets = fr.lost_packets
+                                    existing.avg_delay = fr.avg_delay
+                                    existing.throughput = fr.throughput
                                 else:
-                                    self._flows_runtime[fid] = FlowRuntime(
-                                        flow_id=fid,
-                                        source=source,
-                                        destination=destination,
-                                        tx_packets=st.txPackets,
-                                        rx_packets=st.rxPackets,
-                                        lost_packets=st.lostPackets,
-                                        avg_delay=avg_delay,
-                                        throughput=throughput_mbps,
-                                    )
+                                    self._flows_runtime[fid] = fr
                             # 删除已不存在的流
                             for dead_fid in list(self._flows_runtime):
                                 if dead_fid not in seen:
                                     del self._flows_runtime[dead_fid]
-                        except Exception as e:  # noqa: BLE001
-                            log.warning("flow monitor poll failed: %s", e)
+                    except Exception as e:  # noqa: BLE001
+                        log.warning("flow monitor poll failed: %s", e)
             except Exception as e:  # noqa: BLE001
                 log.warning("wall pacer iteration failed: %s", e)
             # 自适应 sleep：测量本次迭代耗时，动态调整以维持目标频率

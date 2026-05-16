@@ -104,6 +104,16 @@ export interface SimConfig {
   onoffMaxBytes: number;
   onoffStartTime: number;
   onoffSinkPort: number;
+
+  // --- TapBridge ---
+  tapMode: 'UseBridge' | 'UseLocal';
+  tapPrefix: string;
+
+  // --- UDP 协议扩展字段 ---
+  workMode: number;
+  fhTableId: number;
+  nodeMacId: number;
+  softwareVersion: string;
 }
 
 export interface NodeStatus {

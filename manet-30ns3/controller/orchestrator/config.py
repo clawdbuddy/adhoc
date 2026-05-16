@@ -563,8 +563,9 @@ def _normalize_keys(d: Mapping[str, Any]) -> dict[str, Any]:
     for k, v in d.items():
         if "_" in k:
             # snake_case → camelCase alias
-            head, *rest = k.split("_")
-            ck = head + "".join(p.capitalize() for p in rest)
+            parts = k.split("_")
+            head = parts[0]
+            ck = head + "".join(p.capitalize() for p in parts[1:] if p)
             out[ck] = v
         else:
             out[k] = v
@@ -762,7 +763,9 @@ _FIELD_GROUPS: list[tuple[str, list[str]]] = [
     ]),
 ]
 
-CONFIG_FILE_PATH: Path = Path("/app/config/user_settings.conf")
+CONFIG_FILE_PATH: Path = Path(
+    os.environ.get("MANET_CONFIG_FILE", "/app/config/user_settings.conf")
+)
 
 
 def save_config_to_file(cfg: SimConfig, path: str | Path | None = None) -> None:

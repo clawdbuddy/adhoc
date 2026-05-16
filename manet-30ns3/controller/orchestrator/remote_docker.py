@@ -18,10 +18,8 @@ Frames from the container traverse: eth0 → veth → bridge → vxlan → UDP/4
 """
 from __future__ import annotations
 
-import json
 import logging
 import os
-import socket
 import threading
 from dataclasses import dataclass
 

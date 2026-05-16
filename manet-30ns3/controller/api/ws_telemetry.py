@@ -105,7 +105,7 @@ async def telemetry_ws(ws: WebSocket) -> None:
             task.cancel()
         for task in done:
             if task.exception():
-                log.debug("WebSocket task ended with %s", task.exception())
+                log.warning("WebSocket task ended with %s", task.exception())
 
     except WebSocketDisconnect:
         log.info("WebSocket 客户端断开")

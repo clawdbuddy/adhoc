@@ -4,10 +4,7 @@
     uvicorn controller.api.main:app --host 0.0.0.0 --port 8000
 
 在控制器容器内由 /entrypoint.sh 启动。
-PYTHONPATH 须包含 ns-3 Python 绑定目录（Docker：/opt/ns3/ns-3/build/bindings/python）。
-导入双路径兼容：cppyy（pip install ns3）走 `from ns import ns`，
-pybindgen（NS-3.36 源码编译）走 `import ns.core` 等显式子模块导入，
-具体见 controller/orchestrator/sim_runner.py:_import_ns()。
+使用 cppyy Python 绑定（NS-3.47+），`from ns import ns` 单一入口。
 """
 from __future__ import annotations
 

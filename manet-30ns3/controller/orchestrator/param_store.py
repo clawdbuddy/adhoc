@@ -12,7 +12,7 @@ import asyncio
 import logging
 import threading
 from dataclasses import dataclass
-from typing import Any, Callable, Literal, Optional
+from typing import Any, Callable, Literal
 
 from controller.orchestrator.config import SimConfig, save_config_to_file
 

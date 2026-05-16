@@ -27,8 +27,6 @@ import logging
 import os
 import re
 import threading
-from contextlib import contextmanager
-from typing import Iterator
 
 from pyroute2 import IPRoute, NetNS
 
@@ -342,16 +340,3 @@ def teardown(node_count: int) -> None:
         delete_link(name)
     # 3) 清理所有线程本地 IPRoute 实例
     _close_ipr()
-
-
-@contextmanager
-def host_netns_context() -> Iterator[None]:
-    """Context that pins the calling thread to the host netns. Useful when
-    pyroute2 ops are mixed with code that itself moves netns."""
-    fd = os.open("/proc/1/ns/net", os.O_RDONLY)
-    try:
-        # We don't actually setns() here; pyroute2 IPRoute() defaults to host.
-        # This stub exists to mark intent and could be extended with libc.setns().
-        yield
-    finally:
-        os.close(fd)

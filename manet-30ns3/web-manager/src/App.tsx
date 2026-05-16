@@ -72,6 +72,10 @@ function App() {
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ cmd: 'iperf3 -c 192.168.100.10 -p 5201 -t 5 -J' }),
       });
+      if (!res.ok) {
+        const text = await res.text();
+        throw new Error(`iperf3 exec failed (${res.status}): ${text}`);
+      }
       const data = await res.json();
       addLog(`[iperf3] clientNode=${clientNode} exitCode=${data.exitCode}`);
       if (data.output) {
@@ -130,6 +134,10 @@ function App() {
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ cmd: `traceroute -n -m 5 -w 1 ${targetIp}` }),
       });
+      if (!res.ok) {
+        const text = await res.text();
+        throw new Error(`traceroute exec failed (${res.status}): ${text}`);
+      }
       const data = await res.json();
       if (data.exitCode === 0 && data.output) {
         data.output.split('\n').slice(0, 8).forEach((line: string) => {

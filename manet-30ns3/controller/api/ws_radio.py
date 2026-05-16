@@ -236,53 +236,38 @@ async def _handle_set(cmd_code: int, extend: str, payload: dict[str, Any]) -> di
 
 
 # ---------------------------------------------------------------------------
-# 上报类配置与主动推送任务
+# 上报配置辅助（per-connection，参数由调用方传入）
 # ---------------------------------------------------------------------------
 
-# 每个 /ws/radio 连接维护自己的上报配置副本
-_REPORT_CFG: dict[str, Any] = {
-    "5002_enabled": True,
-    "5002_period": 2.0,
-    "5006_enabled": True,
-    "5006_period": 10.0,
-}
-
-
-def _get_report_cfg() -> dict[str, Any]:
-    """返回当前上报配置快照。"""
-    return dict(_REPORT_CFG)
-
-
-def _set_report_cfg(key: str, value: Any) -> bool:
+def _set_report_cfg(cfg: dict[str, Any], key: str, value: Any) -> bool:
     """设置单个上报配置项。"""
-    if key not in _REPORT_CFG:
+    if key not in cfg:
         return False
     try:
         if key.endswith("_enabled"):
-            _REPORT_CFG[key] = bool(value)
+            cfg[key] = bool(value)
         elif key.endswith("_period"):
             v = float(value)
-            _REPORT_CFG[key] = max(0.5, min(300.0, v))
+            cfg[key] = max(0.5, min(300.0, v))
         else:
-            _REPORT_CFG[key] = value
+            cfg[key] = value
         return True
     except Exception:
         return False
 
 
-async def _push_5002(ws: WebSocket, stop_evt: asyncio.Event) -> None:
+async def _push_5002(ws: WebSocket, stop_evt: asyncio.Event, report_cfg: dict[str, Any]) -> None:
     """5002 入网/断网状态变化上报任务。"""
     prev_running: bool | None = None
     while not stop_evt.is_set():
-        cfg = _get_report_cfg()
-        period = cfg["5002_period"]
+        period = report_cfg["5002_period"]
         try:
             await asyncio.wait_for(stop_evt.wait(), timeout=period)
         except asyncio.TimeoutError:
             pass
         if stop_evt.is_set():
             break
-        if not cfg["5002_enabled"]:
+        if not report_cfg["5002_enabled"]:
             continue
 
         sess = get_session()
@@ -300,19 +285,18 @@ async def _push_5002(ws: WebSocket, stop_evt: asyncio.Event) -> None:
             break
 
 
-async def _push_5006(ws: WebSocket, stop_evt: asyncio.Event) -> None:
+async def _push_5006(ws: WebSocket, stop_evt: asyncio.Event, report_cfg: dict[str, Any]) -> None:
     """5006 在线信息上报任务。"""
     prev_online: set[str] = set()
     while not stop_evt.is_set():
-        cfg = _get_report_cfg()
-        period = cfg["5006_period"]
+        period = report_cfg["5006_period"]
         try:
             await asyncio.wait_for(stop_evt.wait(), timeout=period)
         except asyncio.TimeoutError:
             pass
         if stop_evt.is_set():
             break
-        if not cfg["5006_enabled"]:
+        if not report_cfg["5006_enabled"]:
             continue
 
         sess = get_session()
@@ -328,36 +312,35 @@ async def _push_5006(ws: WebSocket, stop_evt: asyncio.Event) -> None:
             frame = _make_response(5006, "", netMode=1, groupMebsIP=online_ips)
             await ws.send_json(frame)
         except Exception:
-            pass
+            log.warning("_push_5006 failed", exc_info=True)
 
 
 # ---------------------------------------------------------------------------
 # 上报配置查询/设置
 # ---------------------------------------------------------------------------
 
-async def _handle_report_query(cmd_code: int, extend: str) -> dict[str, Any]:
+async def _handle_report_query(cmd_code: int, extend: str, report_cfg: dict[str, Any]) -> dict[str, Any]:
     """9001 -> 9002: 查询上报配置。"""
-    cfg = _get_report_cfg()
     return _make_response(
         9002, extend,
-        report5002Enabled=1 if cfg["5002_enabled"] else 0,
-        report5002Period=int(cfg["5002_period"] * 1000),  # ms
-        report5006Enabled=1 if cfg["5006_enabled"] else 0,
-        report5006Period=int(cfg["5006_period"] * 1000),  # ms
+        report5002Enabled=1 if report_cfg["5002_enabled"] else 0,
+        report5002Period=int(report_cfg["5002_period"] * 1000),  # ms
+        report5006Enabled=1 if report_cfg["5006_enabled"] else 0,
+        report5006Period=int(report_cfg["5006_period"] * 1000),  # ms
     )
 
 
-async def _handle_report_set(cmd_code: int, extend: str, payload: dict[str, Any]) -> dict[str, Any]:
+async def _handle_report_set(cmd_code: int, extend: str, payload: dict[str, Any], report_cfg: dict[str, Any]) -> dict[str, Any]:
     """9003 -> 9004: 设置上报配置。"""
     ok = True
     if "report5002Enabled" in payload:
-        ok = _set_report_cfg("5002_enabled", payload["report5002Enabled"]) and ok
+        ok = _set_report_cfg(report_cfg, "5002_enabled", payload["report5002Enabled"]) and ok
     if "report5002Period" in payload:
-        ok = _set_report_cfg("5002_period", payload["report5002Period"] / 1000.0) and ok
+        ok = _set_report_cfg(report_cfg, "5002_period", payload["report5002Period"] / 1000.0) and ok
     if "report5006Enabled" in payload:
-        ok = _set_report_cfg("5006_enabled", payload["report5006Enabled"]) and ok
+        ok = _set_report_cfg(report_cfg, "5006_enabled", payload["report5006Enabled"]) and ok
     if "report5006Period" in payload:
-        ok = _set_report_cfg("5006_period", payload["report5006Period"] / 1000.0) and ok
+        ok = _set_report_cfg(report_cfg, "5006_period", payload["report5006Period"] / 1000.0) and ok
     return _make_response(9004, extend, state=1 if ok else 0)
 
 
@@ -374,10 +357,18 @@ async def radio_ws(ws: WebSocket) -> None:
     stop_evt = asyncio.Event()
     tasks: list[asyncio.Task[None]] = []
 
+    # 每个连接独立的 report 配置，避免并发客户端互相覆盖
+    report_cfg: dict[str, Any] = {
+        "5002_enabled": True,
+        "5002_period": 2.0,
+        "5006_enabled": True,
+        "5006_period": 10.0,
+    }
+
     try:
         # 启动两个独立的上报任务，各自拥有独立的周期和开关
-        tasks.append(asyncio.create_task(_push_5002(ws, stop_evt), name="push-5002"))
-        tasks.append(asyncio.create_task(_push_5006(ws, stop_evt), name="push-5006"))
+        tasks.append(asyncio.create_task(_push_5002(ws, stop_evt, report_cfg), name="push-5002"))
+        tasks.append(asyncio.create_task(_push_5006(ws, stop_evt, report_cfg), name="push-5006"))
 
         while True:
             raw = await ws.receive_text()
@@ -395,7 +386,7 @@ async def radio_ws(ws: WebSocket) -> None:
             # 查询类 (1xxx / 7xxx / 9xxx)
             if cmd_code in (1001, 1025, 1071, 1049, 7001, 7003, 9001):
                 if cmd_code == 9001:
-                    resp = await _handle_report_query(cmd_code, extend)
+                    resp = await _handle_report_query(cmd_code, extend, report_cfg)
                 else:
                     resp = await _handle_query(cmd_code, extend, net_mode)
                 await ws.send_json(resp)
@@ -404,7 +395,7 @@ async def radio_ws(ws: WebSocket) -> None:
             # 设置类 (2xxx / 8xxx / 9xxx)
             if cmd_code in (2001, 2043, 2023, 8001, 8003, 9003):
                 if cmd_code == 9003:
-                    resp = await _handle_report_set(cmd_code, extend, data)
+                    resp = await _handle_report_set(cmd_code, extend, data, report_cfg)
                 else:
                     resp = await _handle_set(cmd_code, extend, data)
                 await ws.send_json(resp)

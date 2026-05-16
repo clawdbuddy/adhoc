@@ -52,6 +52,9 @@ def _validate_cmd(cmd: str | list[str]) -> None:
         if not cmd:
             raise HTTPException(400, "空命令")
         name = cmd[0]
+        # 拒绝 list 形式的 shell -c 注入：sh -c / bash -c 可绕过元字符过滤
+        if name in ("sh", "bash") and "-c" in cmd:
+            raise HTTPException(400, "不允许通过 sh -c 执行命令")
 
     if name not in _ALLOWED_CMDS:
         raise HTTPException(400, f"命令 '{name}' 不在白名单内")

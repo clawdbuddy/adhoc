@@ -25,7 +25,7 @@ services:
     # 本地开发时取消注释 build 段，注释 image 行
     # build:
     #   context: .
-    #   dockerfile: controller/Dockerfile.controller.347
+    #   dockerfile: controller/Dockerfile.controller
     image: ghcr.io/clawdbuddy/manet-controller:latest
     container_name: controller
     privileged: true
@@ -50,39 +50,6 @@ services:
       - ./results:/results
       # Persist user simulation configuration across container restarts
       - ./config:/app/config
-    restart: unless-stopped
-
-  # NS-3.47 备用构建（cppyy 绑定，使用 Dockerfile.controller.347）。
-  # 默认 `docker compose up` 不拉取，必须用 profile 启用：
-#   docker compose --profile v347 build controller-347
-   #   docker compose --profile v347 up   -d controller-347
-  # 与 controller 共享 br-ns3 / tap / veth 这一套全局网络资源，
-  # 同一时刻只能让一个 controller 跑仿真，否则会互踩。
-  controller-347:
-    profiles: ["v347"]
-    build:
-      context: .
-      dockerfile: controller/Dockerfile.controller.347
-    image: controller:3.47
-    container_name: controller-347
-    privileged: true
-    network_mode: host
-    pid: host
-    cap_add:
-      - NET_ADMIN
-      - NET_RAW
-      - SYS_ADMIN
-    environment:
-      - LOG_LEVEL=INFO
-      - MANET_WEB_DIR=/app/dist
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
-      - /var/run/netns:/var/run/netns
-      - ./results:/results
-      - ./config:/app/config
-    # 8000 已被 controller 占用；这里换 8001 以便并行起服。
-    command: ["uvicorn", "controller.api.main:app",
-              "--host", "0.0.0.0", "--port", "8001"]
     restart: unless-stopped
 
   # Build-only target. The controller spawns these containers at runtime via

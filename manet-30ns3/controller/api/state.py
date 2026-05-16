@@ -21,7 +21,7 @@ import json
 from pathlib import Path
 
 from controller.orchestrator import SimConfig, NodeSpec, PRESETS
-from controller.orchestrator.config import load_config, load_user_config, save_config_to_file
+from controller.orchestrator.config import load_user_config, save_config_to_file
 from controller.orchestrator.docker_mgr import CONTAINER_PREFIX, DockerMgr
 from controller.orchestrator.netns import (
     create_vxlan_on_controller,
@@ -59,13 +59,14 @@ def _get_controller_ip() -> str:
             if p == "src" and i + 1 < len(parts):
                 return parts[i + 1]
     except Exception:
-        pass
+        log.debug("fallback IP detection failed (ip route)", exc_info=True)
     # Last resort: UDP socket trick
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     try:
         s.connect(("8.8.8.8", 80))
         return s.getsockname()[0]
     except Exception:
+        log.debug("fallback IP detection failed (UDP socket)", exc_info=True)
         return "127.0.0.1"
     finally:
         s.close()
@@ -198,7 +199,7 @@ class Session:
         # 4. 启动 ns-3 仿真器（驱动所有 TAP）
         sim = SimRunner(cfg)
         try:
-            sim.start()
+            await asyncio.to_thread(sim.start)
         except Exception:
             docker_mgr.stop_all()
             for mgr in remote_mgrs.values():
