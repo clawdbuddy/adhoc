@@ -164,8 +164,12 @@ def move_to_netns(
     """Move `peer_name` (host-side) into the netns identified by `pid`,
     rename it to `rename_to`, optionally set MAC / assign IP, and bring it up."""
     netns_path = f"/proc/{pid}/ns/net"
-    if not os.path.exists(netns_path):
-        raise RuntimeError(f"container pid {pid} has no /proc/<pid>/ns/net (already exited?)")
+    # 直接尝试打开文件，而不是用 os.path.exists（容器内权限检查可能不准确）
+    try:
+        with open(netns_path) as f:
+            pass
+    except (OSError, PermissionError) as e:
+        raise RuntimeError(f"container pid {pid} has no accessible /proc/<pid>/ns/net: {e}")
     # 1) move
     ipr = _get_ipr()
     idx = _get_link_index(ipr, peer_name)
