@@ -8,7 +8,7 @@ import { cn } from '@/lib/utils';
 import type { NodeSpec } from '@/types/config';
 import {
   Plus, Trash2, Server, Globe, Wifi,
-  Loader2, RefreshCw, Network,
+  Loader2, RefreshCw, Network, Pencil,
 } from 'lucide-react';
 
 interface RemoteHost {
@@ -31,6 +31,10 @@ export function NodeManager({ onNodeSpecsChange }: NodeManagerProps) {
   const [newHostKey, setNewHostKey] = useState('');
   const [newHostCapacity, setNewHostCapacity] = useState(4);
   const [registering, setRegistering] = useState(false);
+  const [editingHost, setEditingHost] = useState<string | null>(null);
+  const [editHostUser, setEditHostUser] = useState('');
+  const [editHostKey, setEditHostKey] = useState('');
+  const [editHostCapacity, setEditHostCapacity] = useState(4);
 
   // ---- node configuration ----
   const [nodeSpecs, setNodeSpecs] = useState<NodeSpec[]>([
@@ -91,6 +95,40 @@ export function NodeManager({ onNodeSpecsChange }: NodeManagerProps) {
     } catch {
       // ignore
     }
+  };
+
+  const startEditHost = (host: RemoteHost) => {
+    setEditingHost(host.ip);
+    setEditHostUser(host.ssh_user);
+    setEditHostKey('');
+    setEditHostCapacity(host.capacity);
+  };
+
+  const saveEditHost = async () => {
+    if (!editingHost) return;
+    try {
+      const body: Record<string, unknown> = {
+        ip: editingHost,
+        ssh_user: editHostUser,
+        capacity: editHostCapacity,
+      };
+      if (editHostKey.trim()) body.ssh_key = editHostKey.trim();
+      const res = await fetch(`/api/hosts/${editingHost}`, {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      if (res.ok) {
+        await fetchHosts();
+        setEditingHost(null);
+      }
+    } catch {
+      // ignore
+    }
+  };
+
+  const cancelEditHost = () => {
+    setEditingHost(null);
   };
 
   // ---- node spec management ----
@@ -198,18 +236,40 @@ export function NodeManager({ onNodeSpecsChange }: NodeManagerProps) {
           ) : (
             <div className="space-y-1.5">
               {remoteHosts.map(host => (
-                <div
-                  key={host.ip}
-                  className="flex items-center gap-3 px-3 py-2 rounded-lg border bg-card text-sm hover:bg-accent/50 transition-colors"
-                >
-                  <Globe className="h-4 w-4 text-primary shrink-0" />
-                  <span className="font-mono font-medium">{host.ip}</span>
-                  <Badge variant="secondary" className="text-[10px]">{host.ssh_user}</Badge>
-                  <Badge variant="outline" className="text-[10px] ml-auto">容量 {host.capacity}</Badge>
-                  <Button size="sm" variant="ghost" onClick={() => unregisterHost(host.ip)} className="h-7 w-7 p-0 text-destructive hover:text-destructive">
-                    <Trash2 className="h-3.5 w-3.5" />
-                  </Button>
-                </div>
+                editingHost === host.ip ? (
+                  <div key={host.ip} className="flex items-end gap-2 px-3 py-2 rounded-lg border bg-accent/30 text-sm">
+                    <div className="min-w-0">
+                      <Label className="text-xs text-muted-foreground">SSH 用户</Label>
+                      <Input value={editHostUser} onChange={e => setEditHostUser(e.target.value)} className="h-8 text-xs mt-0.5" />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <Label className="text-xs text-muted-foreground">SSH 密钥路径</Label>
+                      <Input value={editHostKey} onChange={e => setEditHostKey(e.target.value)} placeholder="留空不变" className="h-8 text-xs mt-0.5" />
+                    </div>
+                    <div className="w-[70px]">
+                      <Label className="text-xs text-muted-foreground">容量</Label>
+                      <Input type="number" min={1} max={64} value={editHostCapacity} onChange={e => setEditHostCapacity(Number(e.target.value))} className="h-8 text-xs mt-0.5" />
+                    </div>
+                    <Button size="sm" onClick={saveEditHost} className="h-8 gap-1">保存</Button>
+                    <Button size="sm" variant="ghost" onClick={cancelEditHost} className="h-8">取消</Button>
+                  </div>
+                ) : (
+                  <div
+                    key={host.ip}
+                    className="flex items-center gap-3 px-3 py-2 rounded-lg border bg-card text-sm hover:bg-accent/50 transition-colors"
+                  >
+                    <Globe className="h-4 w-4 text-primary shrink-0" />
+                    <span className="font-mono font-medium">{host.ip}</span>
+                    <Badge variant="secondary" className="text-[10px]">{host.ssh_user}</Badge>
+                    <Badge variant="outline" className="text-[10px] ml-auto">容量 {host.capacity}</Badge>
+                    <Button size="sm" variant="ghost" onClick={() => startEditHost(host)} className="h-7 w-7 p-0">
+                      <Pencil className="h-3.5 w-3.5" />
+                    </Button>
+                    <Button size="sm" variant="ghost" onClick={() => unregisterHost(host.ip)} className="h-7 w-7 p-0 text-destructive hover:text-destructive">
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </Button>
+                  </div>
+                )
               ))}
             </div>
           )}

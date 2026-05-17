@@ -50,6 +50,26 @@ async def list_hosts() -> list[dict[str, Any]]:
     ]
 
 
+@router.put("/{host_ip}")
+async def update_host(host_ip: str, req: HostRegisterRequest) -> dict[str, Any]:
+    """更新远端主机的 SSH 凭据、容量等信息。
+
+    调用时必须与现有 host_ip 一致（或使用 URL 中的 IP）。
+    """
+    if host_ip not in _registry:
+        raise HTTPException(404, f"主机 {host_ip} 未注册")
+    old = _registry[host_ip]
+    updated = req.model_copy(update={"ip": host_ip})
+    _registry[host_ip] = updated
+    log.info("更新远端主机 %s (user=%s capacity=%d)", host_ip, updated.ssh_user, updated.capacity)
+    return {
+        "ok": True,
+        "ip": host_ip,
+        "ssh_user": updated.ssh_user,
+        "capacity": updated.capacity,
+    }
+
+
 @router.delete("/{host_ip}")
 async def deregister_host(host_ip: str) -> dict[str, Any]:
     """注销远端主机。"""
