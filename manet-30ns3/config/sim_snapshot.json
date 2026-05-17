@@ -23,6 +23,6 @@
   "pathLossExponent": 2.0,
   "frequencyMhz": 2412,
   "channelWidthMhz": 20,
-  "rangeTargetM": 500.0,
+  "rangeTargetM": 3400.0,
   "pathLossModel": "FreeSpace"
 }

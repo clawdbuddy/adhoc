@@ -363,10 +363,11 @@ export function NodeManager({ onNodeSpecsChange }: NodeManagerProps) {
           {/* Header */}
           <div className="grid grid-cols-12 gap-2 px-3 py-1.5 text-xs font-medium text-muted-foreground border-b">
             <div className="col-span-1">ID</div>
-            <div className="col-span-3">IP 地址</div>
+            <div className="col-span-2">IP 地址</div>
             <div className="col-span-2">角色</div>
-            <div className="col-span-4">主机</div>
-            <div className="col-span-2" />
+            <div className="col-span-3">主机</div>
+            <div className="col-span-3">镜像版本</div>
+            <div className="col-span-1" />
           </div>
 
           {nodeSpecs.length === 0 ? (
@@ -381,7 +382,7 @@ export function NodeManager({ onNodeSpecsChange }: NodeManagerProps) {
                 className="grid grid-cols-12 gap-2 items-center px-3 py-2 rounded-lg border bg-card hover:bg-accent/30 transition-colors"
               >
                 <div className="col-span-1 font-mono text-sm font-medium">{spec.id}</div>
-                <div className="col-span-3">
+                <div className="col-span-2">
                   <Input
                     value={spec.ip}
                     onChange={e => updateNode(spec.id, 'ip', e.target.value)}
@@ -399,7 +400,7 @@ export function NodeManager({ onNodeSpecsChange }: NodeManagerProps) {
                     <option value="gateway">Gateway</option>
                   </select>
                 </div>
-                <div className="col-span-4">
+                <div className="col-span-3">
                   <select
                     value={spec.host}
                     onChange={e => updateNode(spec.id, 'host', e.target.value)}
@@ -411,7 +412,15 @@ export function NodeManager({ onNodeSpecsChange }: NodeManagerProps) {
                     ))}
                   </select>
                 </div>
-                <div className="col-span-2 flex justify-end">
+                <div className="col-span-3">
+                  <Input
+                    value={spec.image ?? 'manet-node:latest'}
+                    onChange={e => updateNode(spec.id, 'image' as keyof NodeSpec, e.target.value)}
+                    placeholder="manet-node:latest"
+                    className="h-8 text-xs font-mono"
+                  />
+                </div>
+                <div className="col-span-1 flex justify-end">
                   <Button
                     size="sm"
                     variant="ghost"

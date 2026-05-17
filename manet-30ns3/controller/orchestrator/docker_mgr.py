@@ -103,6 +103,14 @@ class DockerMgr:
         log.info("启动 %s (镜像=%s 模式=%s IP=%s)",
                  name, spec.image, spec.user_app_mode, spec.ip)
 
+        # 自动拉取镜像（如果本地不存在）
+        try:
+            self.client.images.get(spec.image)
+        except docker.errors.ImageNotFound:
+            log.info("镜像 %s 不存在，正在拉取...", spec.image)
+            self.client.images.pull(spec.image)
+            log.info("镜像 %s 拉取完成", spec.image)
+
         container = self.client.containers.run(
             image=spec.image,
             name=name,

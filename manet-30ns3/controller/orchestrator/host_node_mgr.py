@@ -223,6 +223,8 @@ class HostNodeMgr:
             image = "ghcr.io/clawdbuddy/host-manet-node:main"
         else:
             image = spec.image
+        # Auto-pull if not present
+        self._exec(f"docker images -q {image} 2>/dev/null | grep -q . || docker pull {image}")
         run_cmd = (
             f"docker run -d --name {name} --hostname host-manet-{spec.id} "
             f"--net=host --privileged --cap-add NET_ADMIN --cap-add SYS_ADMIN "
