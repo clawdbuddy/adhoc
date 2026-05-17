@@ -27,6 +27,7 @@ from controller.orchestrator.netns import (
     create_vxlan_on_controller,
     delete_link,
     list_stale_links,
+    mesh_mac,
     node_bridge_name,
     teardown,
 )
@@ -335,10 +336,42 @@ class Session:
             except Exception as e:  # noqa: BLE001
                 log.warning("恢复快照失败: %s", e)
 
-        # 5. 启动容器状态缓存刷新（本地节点）
+        # 5. 注入静态 ARP 条目（避免 mesh+VXLAN 路径下广播 ARP 不可达）
+        for spec in specs:
+            for peer in specs:
+                if spec.id >= peer.id:
+                    continue
+                peer_mac = mesh_mac(peer.id)
+                my_mac = mesh_mac(spec.id)
+                if spec.host == "local":
+                    try:
+                        docker_mgr.exec_in(spec.id, f"arp -s {peer.ip} {peer_mac}")
+                    except Exception as e:
+                        log.warning("设置 ARP 失败 node %d -> %s: %s", spec.id, peer.ip, e)
+                elif spec.host_type == "host-manet":
+                    mgr = host_mgrs.get(spec.host)
+                    if mgr:
+                        try:
+                            mgr.exec_on_host(f"sudo arp -s {peer.ip} {peer_mac} dev vxlan-{spec.id}")
+                        except Exception as e:
+                            log.warning("设置 ARP 失败 host-node %d -> %s: %s", spec.id, peer.ip, e)
+                if peer.host == "local":
+                    try:
+                        docker_mgr.exec_in(peer.id, f"arp -s {spec.ip} {my_mac}")
+                    except Exception as e:
+                        log.warning("设置 ARP 失败 node %d -> %s: %s", peer.id, spec.ip, e)
+                elif peer.host_type == "host-manet":
+                    mgr = host_mgrs.get(peer.host)
+                    if mgr:
+                        try:
+                            mgr.exec_on_host(f"sudo arp -s {spec.ip} {my_mac} dev vxlan-{peer.id}")
+                        except Exception as e:
+                            log.warning("设置 ARP 失败 host-node %d -> %s: %s", peer.id, spec.ip, e)
+
+        # 6. 启动容器状态缓存刷新（本地节点）
         docker_mgr.start_status_refresh(interval=1.0)
 
-        # 6. 启动遥测泵 (5 Hz)
+        # 7. 启动遥测泵 (5 Hz)
         # 统一的状态检查函数，覆盖本地、host、远端节点
         specs_by_id = {s.id: s for s in specs}
 

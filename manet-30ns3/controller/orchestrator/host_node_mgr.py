@@ -283,6 +283,10 @@ class HostNodeMgr:
             self.stop_one(nid)
 
     # ------------------------------------------------------------------ exec / logs / status
+    def exec_on_host(self, cmd: str, timeout: int = 30) -> tuple[int, str]:
+        """Execute a command directly on the remote host (not inside a container)."""
+        return self._exec(cmd, timeout)
+
     def exec_in(self, node_id: int, cmd: str | list[str]) -> tuple[int, str]:
         """Execute a command inside the host-manet-node container."""
         hn = self._nodes.get(node_id)
