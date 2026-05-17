@@ -1,16 +1,36 @@
-"""节点操作路由：GET/POST /api/nodes、/api/flows、/api/logs。"""
+"""节点操作路由：GET/POST /api/nodes、/api/flows、/api/logs 以及节点配置持久化。"""
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import re
 import shlex
+from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, field_validator
 
 from controller.api.state import get_session
+
+NODE_SPECS_PATH: Path = Path("/app/config/node_specs.json")
+
+
+def _load_node_specs() -> list[dict[str, Any]]:
+    """从 JSON 文件加载节点配置。"""
+    if not NODE_SPECS_PATH.exists():
+        return []
+    try:
+        return json.loads(NODE_SPECS_PATH.read_text(encoding="utf-8"))
+    except Exception:
+        return []
+
+
+def _save_node_specs(specs: list[dict[str, Any]]) -> None:
+    """将节点配置持久化到 JSON 文件。"""
+    NODE_SPECS_PATH.parent.mkdir(parents=True, exist_ok=True)
+    NODE_SPECS_PATH.write_text(json.dumps(specs, indent=2, ensure_ascii=False), encoding="utf-8")
 
 log = logging.getLogger(__name__)
 
@@ -61,6 +81,24 @@ def _validate_cmd(cmd: str | list[str]) -> None:
 
     if name not in _ALLOWED_CMDS:
         raise HTTPException(400, f"命令 '{name}' 不在白名单内")
+
+
+class NodeSpecsBody(BaseModel):
+    """节点配置列表的请求体。"""
+    specs: list[dict[str, Any]]
+
+
+@router.get("/api/nodes/specs")
+async def get_node_specs() -> list[dict[str, Any]]:
+    """获取保存的节点配置列表。"""
+    return _load_node_specs()
+
+
+@router.put("/api/nodes/specs")
+async def save_node_specs(body: NodeSpecsBody) -> dict[str, Any]:
+    """保存节点配置列表。"""
+    _save_node_specs(body.specs)
+    return {"ok": True, "count": len(body.specs)}
 
 
 class ExecBody(BaseModel):

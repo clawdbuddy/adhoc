@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -8,7 +8,7 @@ import { cn } from '@/lib/utils';
 import type { NodeSpec } from '@/types/config';
 import {
   Plus, Trash2, Server, Globe, Wifi,
-  Loader2, RefreshCw, Network, Pencil,
+  Loader2, RefreshCw, Network, Pencil, Save,
 } from 'lucide-react';
 
 interface RemoteHost {
@@ -37,10 +37,52 @@ export function NodeManager({ onNodeSpecsChange }: NodeManagerProps) {
   const [editHostCapacity, setEditHostCapacity] = useState(4);
 
   // ---- node configuration ----
-  const [nodeSpecs, setNodeSpecs] = useState<NodeSpec[]>([
-    { id: 0, ip: '192.168.100.10', role: 'server', host: 'local' },
-    { id: 1, ip: '192.168.100.11', role: 'client', host: 'local' },
-  ]);
+  const [nodeSpecs, setNodeSpecs] = useState<NodeSpec[]>([]);
+  const [saving, setSaving] = useState(false);
+  const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Load node specs from backend on mount
+  const fetchNodeSpecs = useCallback(async () => {
+    try {
+      const res = await fetch('/api/nodes/specs');
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data) && data.length > 0) {
+          setNodeSpecs(data);
+        } else {
+          // Default fallback: 2 local nodes
+          setNodeSpecs([
+            { id: 0, ip: '192.168.100.10', role: 'server', host: 'local' },
+            { id: 1, ip: '192.168.100.11', role: 'client', host: 'local' },
+          ]);
+        }
+      }
+    } catch {
+      // ignore
+    }
+  }, []);
+
+  // Save node specs to backend with debounce
+  const saveNodeSpecs = useCallback(async (specs: NodeSpec[]) => {
+    setSaving(true);
+    try {
+      await fetch('/api/nodes/specs', {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ specs }),
+      });
+    } catch {
+      // ignore
+    } finally {
+      setSaving(false);
+    }
+  }, []);
+
+  // Debounced save: wait 500ms after last change
+  const debouncedSave = useCallback((specs: NodeSpec[]) => {
+    if (saveTimer.current) clearTimeout(saveTimer.current);
+    saveTimer.current = setTimeout(() => saveNodeSpecs(specs), 500);
+  }, [saveNodeSpecs]);
 
   const fetchHosts = useCallback(async () => {
     setLoadingHosts(true);
@@ -57,7 +99,7 @@ export function NodeManager({ onNodeSpecsChange }: NodeManagerProps) {
     }
   }, []);
 
-  useEffect(() => { fetchHosts(); }, [fetchHosts]);
+  useEffect(() => { fetchHosts(); fetchNodeSpecs(); }, [fetchHosts, fetchNodeSpecs]);
 
   const registerHost = async () => {
     if (!newHostIp.trim()) return;
@@ -136,22 +178,28 @@ export function NodeManager({ onNodeSpecsChange }: NodeManagerProps) {
     const maxId = nodeSpecs.reduce((max, n) => Math.max(max, n.id), -1);
     const newId = maxId + 1;
     const newIp = `192.168.100.${10 + newId}`;
-    setNodeSpecs(prev => [...prev, {
+    const updated = [...nodeSpecs, {
       id: newId,
       ip: newIp,
-      role: 'client',
-      host: 'local',
-    }]);
+      role: 'client' as const,
+      host: 'local' as const,
+    }];
+    setNodeSpecs(updated);
+    debouncedSave(updated);
   };
 
   const removeNode = (id: number) => {
-    setNodeSpecs(prev => prev.filter(n => n.id !== id));
+    const updated = nodeSpecs.filter(n => n.id !== id);
+    setNodeSpecs(updated);
+    debouncedSave(updated);
   };
 
   const updateNode = (id: number, field: keyof NodeSpec, value: string) => {
-    setNodeSpecs(prev => prev.map(n =>
+    const updated = nodeSpecs.map(n =>
       n.id === id ? { ...n, [field]: value } : n
-    ));
+    );
+    setNodeSpecs(updated);
+    debouncedSave(updated);
   };
 
   // generate updated NodeSpec list whenever specs change
@@ -161,6 +209,13 @@ export function NodeManager({ onNodeSpecsChange }: NodeManagerProps) {
       onNodeSpecsChange(hasRemote ? nodeSpecs : undefined);
     }
   }, [nodeSpecs, hasRemote, onNodeSpecsChange]);
+
+  // Clean up debounce timer on unmount
+  useEffect(() => {
+    return () => {
+      if (saveTimer.current) clearTimeout(saveTimer.current);
+    };
+  }, []);
 
   return (
     <div className="h-full overflow-auto p-4 space-y-5 max-w-6xl mx-auto animate-fade-in">
@@ -284,6 +339,17 @@ export function NodeManager({ onNodeSpecsChange }: NodeManagerProps) {
             节点配置
           </CardTitle>
           <div className="flex items-center gap-2">
+            {saving ? (
+              <Badge variant="outline" className="text-xs text-muted-foreground gap-1">
+                <Loader2 className="h-3 w-3 animate-spin" />
+                保存中
+              </Badge>
+            ) : nodeSpecs.length > 0 && (
+              <Badge variant="outline" className="text-xs text-green-600 gap-1">
+                <Save className="h-3 w-3" />
+                已保存
+              </Badge>
+            )}
             <Badge variant="secondary" className="text-xs">
               {nodeSpecs.length} 节点
             </Badge>

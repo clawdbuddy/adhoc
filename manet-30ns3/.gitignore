@@ -4,3 +4,7 @@ test-results/
 .env
 *.env
 !*.env.example
+
+# 运行时持久化文件（自动生成）
+config/host_registry.json
+config/node_specs.json
