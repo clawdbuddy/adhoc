@@ -31,6 +31,7 @@ from controller.orchestrator.netns import (
     teardown,
 )
 from controller.orchestrator.param_store import ParamStore
+from controller.orchestrator.host_node_mgr import HostNodeMgr
 from controller.orchestrator.remote_docker import RemoteDockerMgr
 from controller.orchestrator.sim_runner import SimRunner
 from controller.orchestrator.telemetry import Telemetry
@@ -40,16 +41,76 @@ SNAPSHOT_PATH: Path = Path("/app/config/sim_snapshot.json")
 log = logging.getLogger(__name__)
 
 
-def _get_controller_ip() -> str:
-    """Return the IP address the controller host uses for outbound traffic.
+def _remote_lan_ip(host_ip: str) -> str:
+    """SSH to *host_ip* and detect its LAN IP (src IP of default route).
 
-    First checks ``MANET_CONTROLLER_IP`` env var, then falls back to
-    auto-detection via the default route.
+    Looks up SSH credentials from the host registry.
+    """
+    from controller.api.routes_hosts import get_host_registry
+    reg = get_host_registry()
+    entry = reg.get(host_ip)
+    ssh_user = entry.ssh_user if entry else "root"
+    ssh_key = entry.ssh_key if entry else None
+    import paramiko
+    client = paramiko.SSHClient()
+    client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+    connect_kwargs: dict = {
+        "hostname": host_ip,
+        "username": ssh_user,
+        "timeout": 15,
+        "banner_timeout": 15,
+    }
+    if ssh_key:
+        try:
+            from controller.orchestrator.host_node_mgr import _load_pkey
+            pkey = _load_pkey(ssh_key)
+            if pkey is not None:
+                connect_kwargs["pkey"] = pkey
+            else:
+                connect_kwargs["key_filename"] = ssh_key
+        except Exception:
+            connect_kwargs["key_filename"] = ssh_key
+    try:
+        client.connect(**connect_kwargs)
+        _, stdout, _ = client.exec_command(
+            "ip route get 8.8.8.8", timeout=15
+        )
+        out = stdout.read().decode()
+        parts = out.strip().split()
+        for i, p in enumerate(parts):
+            if p == "src" and i + 1 < len(parts):
+                return parts[i + 1]
+        raise RuntimeError(f"Could not detect LAN IP on {host_ip}")
+    finally:
+        client.close()
+
+
+def _get_controller_ip(remote_lan_ip: str | None = None) -> str:
+    """Return the controller IP to use as VXLAN tunnel endpoint.
+
+    If *remote_lan_ip* is given, finds the controller IP on the same
+    /24 subnet (so VXLAN traffic stays on one L2 segment and avoids NAT).
+    Falls back to the default-route source IP, then ``MANET_CONTROLLER_IP``,
+    then 127.0.0.1.
     """
     ip = __import__("os").environ.get("MANET_CONTROLLER_IP")
     if ip:
         return ip
     try:
+        out = subprocess.check_output(
+            ["ip", "-4", "addr", "show", "scope", "global"],
+            text=True,
+        )
+        if remote_lan_ip:
+            remote_prefix = ".".join(remote_lan_ip.split(".")[:2]) + "."
+            for line in out.splitlines():
+                line = line.strip()
+                if line.startswith("inet "):
+                    parts = line.split()
+                    addr = parts[1].split("/")[0]
+                    if addr.startswith(remote_prefix):
+                        return addr
+        # Fallback: default-route source IP
         out = subprocess.check_output(
             ["ip", "route", "get", "1.1.1.1"],
             text=True,
@@ -60,16 +121,7 @@ def _get_controller_ip() -> str:
                 return parts[i + 1]
     except Exception:
         log.debug("fallback IP detection failed (ip route)", exc_info=True)
-    # Last resort: UDP socket trick
-    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    try:
-        s.connect(("8.8.8.8", 80))
-        return s.getsockname()[0]
-    except Exception:
-        log.debug("fallback IP detection failed (UDP socket)", exc_info=True)
-        return "127.0.0.1"
-    finally:
-        s.close()
+    return "127.0.0.1"
 
 
 def default_node_specs(config: SimConfig) -> list[NodeSpec]:
@@ -98,6 +150,7 @@ class Session:
     sim: Optional[SimRunner] = None
     docker_mgr: Optional[DockerMgr] = None
     remote_mgrs: dict[str, RemoteDockerMgr] = field(default_factory=dict)
+    host_mgrs: dict[str, HostNodeMgr] = field(default_factory=dict)
     telemetry: Optional[Telemetry] = None
     param_store: Optional[ParamStore] = None
     specs: list[NodeSpec] = field(default_factory=list)
@@ -155,20 +208,68 @@ class Session:
             await asyncio.to_thread(docker_mgr.stop_all)
             raise
 
-        # 2. 启动远端节点容器
+        # 2. First pass: detect remote LAN IPs and compute per-remote controller IPs
+        #    (before starting containers, so we can pass the correct controller IP)
+        remote_controller_ips: dict[int, str] = {}
+        for spec in remote_specs:
+            remote_host = spec.host
+            if spec.host_type == "host-manet":
+                # SSH to detect the remote's LAN IP (e.g. 192.168.50.199)
+                try:
+                    remote_lan = _remote_lan_ip(spec.host)
+                except Exception:
+                    log.warning("LAN IP detection failed for %s, using host IP", spec.host)
+                    remote_lan = spec.host
+            else:
+                remote_lan = spec.host
+            # Find a controller IP on the same /24 as the remote to avoid NAT
+            local_ip = _get_controller_ip(remote_lan)
+            remote_controller_ips[spec.id] = local_ip
+
+        # 3. 启动远端节点容器（分两类：host-manet-node 和 常规远端容器）
         remote_mgrs: dict[str, RemoteDockerMgr] = {}
-        controller_ip = _get_controller_ip()
+        host_mgrs: dict[str, HostNodeMgr] = {}
         try:
             for spec in remote_specs:
-                mgr = remote_mgrs.get(spec.host)
-                if mgr is None:
-                    mgr = RemoteDockerMgr(spec.host)
-                    remote_mgrs[spec.host] = mgr
-                await asyncio.to_thread(
-                    mgr.start_one, spec, cfg, controller_ip
-                )
+                if spec.host_type == "host-manet":
+                    # host-manet-node: SSH 启动容器 + 创建 controller 侧 bridge/tap
+                    mgr = host_mgrs.get(spec.host)
+                    if mgr is None:
+                        from controller.api.routes_hosts import get_host_registry
+                        reg = get_host_registry()
+                        entry = reg.get(spec.host)
+                        if entry is not None:
+                            mgr = HostNodeMgr(
+                                spec.host,
+                                ssh_user=entry.ssh_user,
+                                ssh_key=entry.ssh_key,
+                            )
+                        else:
+                            mgr = HostNodeMgr(spec.host)
+                        host_mgrs[spec.host] = mgr
+                    await asyncio.to_thread(
+                        mgr.start_one, spec, cfg,
+                        remote_controller_ips.get(spec.id, spec.host),
+                    )
+                else:
+                    mgr = remote_mgrs.get(spec.host)
+                    if mgr is None:
+                        mgr = RemoteDockerMgr(spec.host)
+                        remote_mgrs[spec.host] = mgr
+                    await asyncio.to_thread(
+                        mgr.start_one, spec, cfg,
+                        remote_controller_ips.get(spec.id, spec.host),
+                    )
         except Exception:
-            # 清理已启动的远端节点和本地节点
+            for mgr in host_mgrs.values():
+                try:
+                    mgr.stop_all()
+                except Exception:
+                    pass
+                try:
+                    mgr.close()
+                except Exception:
+                    pass
             for mgr in remote_mgrs.values():
                 try:
                     mgr.stop_all()
@@ -181,20 +282,26 @@ class Session:
             docker_mgr.stop_all()
             raise
 
-        # 3. 控制器主机为每个远端节点创建 VXLAN 接口
+        # 4. 控制器主机为每个远端节点创建 VXLAN 接口
         for spec in remote_specs:
+            remote_lan = spec.host
+            if spec.host_type == "host-manet":
+                try:
+                    remote_lan = _remote_lan_ip(spec.host)
+                except Exception:
+                    log.warning("LAN IP detection failed for %s, using %s", spec.host, spec.host)
+            local_ip = _get_controller_ip(remote_lan)
             try:
                 create_vxlan_on_controller(
                     spec.id,
-                    remote_ip=spec.host,
-                    local_ip=controller_ip,
+                    remote_ip=remote_lan,
+                    local_ip=local_ip,
                 )
             except Exception:
                 log.warning(
                     "为远端节点 %d (host=%s) 创建 VXLAN 失败",
                     spec.id, spec.host,
                 )
-                # 继续；ns-3 启动时会报错，但至少其他节点可以工作
 
         # 4. 启动 ns-3 仿真器（驱动所有 TAP）
         sim = SimRunner(cfg)
@@ -203,6 +310,8 @@ class Session:
         except Exception:
             docker_mgr.stop_all()
             for mgr in remote_mgrs.values():
+                mgr.stop_all()
+            for mgr in host_mgrs.values():
                 mgr.stop_all()
             teardown(cfg.n_nodes)
             raise
@@ -230,7 +339,7 @@ class Session:
         docker_mgr.start_status_refresh(interval=1.0)
 
         # 6. 启动遥测泵 (5 Hz)
-        # 统一的状态检查函数，覆盖本地和远端节点
+        # 统一的状态检查函数，覆盖本地、host、远端节点
         specs_by_id = {s.id: s for s in specs}
 
         def _is_running(node_id: int) -> bool:
@@ -239,6 +348,9 @@ class Session:
                 return False
             if spec.host == "local":
                 return docker_mgr.is_running(node_id)
+            if spec.host_type == "host-manet":
+                mgr = host_mgrs.get(spec.host)
+                return mgr.is_running(node_id) if mgr else False
             mgr = remote_mgrs.get(spec.host)
             return mgr.is_running(node_id) if mgr else False
 
@@ -249,6 +361,7 @@ class Session:
             self.config = cfg
             self.docker_mgr = docker_mgr
             self.remote_mgrs = remote_mgrs
+            self.host_mgrs = host_mgrs
             self.sim = sim
             self.telemetry = tele
             self.specs = specs
@@ -261,13 +374,14 @@ class Session:
         把上一次仿真留下的 docker 容器/mesh-br/mesh-tap/mesh-veth 兜底删干净。
         """
         with self._lock:
-            sim, docker_mgr, remote_mgrs, tele, specs = (
-                self.sim, self.docker_mgr, self.remote_mgrs, self.telemetry, self.specs
+            sim, docker_mgr, remote_mgrs, host_mgrs, tele, specs = (
+                self.sim, self.docker_mgr, self.remote_mgrs, self.host_mgrs, self.telemetry, self.specs
             )
             cfg = self.config
             last_preset = self.preset
             self.sim = self.docker_mgr = self.telemetry = None
             self.remote_mgrs = {}
+            self.host_mgrs = {}
             self.specs = []
             self.preset = None
 
@@ -287,7 +401,7 @@ class Session:
                 await asyncio.to_thread(docker_mgr.stop_all)
             except Exception as e:  # noqa: BLE001
                 log.warning("docker_mgr.stop_all() 抛异常: %s", e)
-        # 停止所有远端节点
+        # 停止所有远端 container 节点
         for host_ip, mgr in remote_mgrs.items():
             try:
                 await asyncio.to_thread(mgr.stop_all)
@@ -297,6 +411,16 @@ class Session:
                 mgr.close()
             except Exception as e:  # noqa: BLE001
                 log.warning("remote_mgr %s close() 抛异常: %s", host_ip, e)
+        # 停止所有 host-manet-node 节点
+        for host_ip, mgr in host_mgrs.items():
+            try:
+                await asyncio.to_thread(mgr.stop_all)
+            except Exception as e:  # noqa: BLE001
+                log.warning("host_mgr %s stop_all() 抛异常: %s", host_ip, e)
+            try:
+                mgr.close()
+            except Exception as e:  # noqa: BLE001
+                log.warning("host_mgr %s close() 抛异常: %s", host_ip, e)
         # 用配置中的 n_nodes 而不是实际启动的容器数，
         # 确保 ns-3 创建的所有 tap 接口都被清理
         try:

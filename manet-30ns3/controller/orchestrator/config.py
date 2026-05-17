@@ -39,6 +39,7 @@ RwMode = Literal["Time", "Distance"]
 NodeRole = Literal["client", "server", "gateway"]
 UserAppMode = Literal["bind", "image", "exec"]
 TrafficMode = Literal["tap", "onoff"]
+HostType = Literal["container", "host-manet"]
 
 
 class _CamelModel(BaseModel):
@@ -201,6 +202,17 @@ class SimConfig(_CamelModel):
     node_mac_id: int = Field(default=0, ge=0, le=127)
     software_version: str = Field(default="V1.00.03")
 
+    # --- Advanced / internal [全局] ---
+    no_ip_node_indices: list[int] = Field(
+        default_factory=list,
+        description="节点索引列表，这些节点不会分配 IP 地址，用作纯 L2 mesh 转发节点",
+    )
+    node_external_macs: dict[str, list[str]] = Field(
+        default_factory=dict,
+        description="Per-node external MACs that should be announced as proxy entries, "
+        "e.g. {\"1\": [\"02:00:00:ff:00:01\"]} for node 1 advertising an external MAC",
+    )
+
     # ----- helpers -----------------------------------------------------------
     def merged_with(self, partial: Mapping[str, Any]) -> "SimConfig":
         """Return a copy with `partial` overrides (accepts camelCase or snake_case)."""
@@ -216,6 +228,7 @@ class NodeSpec(_CamelModel):
     ip: str
     role: NodeRole = "client"
     image: str = "manet-node:latest"
+    host_type: HostType = "container"  # "container"→常规容器, "host-manet"→host-manet-node
     user_app_mode: UserAppMode = "exec"
     user_app_cmd: str | None = None
     user_app_bind_path: str | None = None  # host path to bind-mount when mode=bind

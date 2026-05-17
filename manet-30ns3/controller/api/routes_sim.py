@@ -57,7 +57,8 @@ async def status() -> dict[str, Any]:
             1 for s in sess.specs
             if (
                 (s.host == "local" and sess.docker_mgr and sess.docker_mgr.is_running(s.id))
-                or (s.host != "local" and sess.remote_mgrs.get(s.host) and sess.remote_mgrs[s.host].is_running(s.id))
+                or (s.host != "local" and s.host_type == "host-manet" and sess.host_mgrs.get(s.host) and sess.host_mgrs[s.host].is_running(s.id))
+                or (s.host != "local" and s.host_type != "host-manet" and sess.remote_mgrs.get(s.host) and sess.remote_mgrs[s.host].is_running(s.id))
             )
         ),
         "preset": sess.preset,

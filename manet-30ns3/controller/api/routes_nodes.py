@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import re
 import shlex
 from typing import Any
@@ -10,6 +11,8 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, field_validator
 
 from controller.api.state import get_session
+
+log = logging.getLogger(__name__)
 
 router = APIRouter(tags=["nodes"])
 
@@ -95,7 +98,7 @@ async def list_flows() -> list[dict[str, Any]]:
 async def exec_in_node(node_id: int, body: ExecBody) -> dict[str, Any]:
     """在指定节点容器内执行命令。支持本地和远端节点。"""
     sess = get_session()
-    if not sess.docker_mgr and not sess.remote_mgrs:
+    if not sess.docker_mgr and not sess.remote_mgrs and not sess.host_mgrs:
         raise HTTPException(409, "没有正在运行的仿真")
 
     # 查找节点所属主机
@@ -108,6 +111,14 @@ async def exec_in_node(node_id: int, body: ExecBody) -> dict[str, Any]:
             raise HTTPException(409, "本地 Docker 管理器不可用")
         try:
             rc, out = await asyncio.to_thread(sess.docker_mgr.exec_in, node_id, body.cmd)
+        except KeyError as e:
+            raise HTTPException(404, str(e)) from e
+    elif spec.host_type == "host-manet":
+        mgr = sess.host_mgrs.get(spec.host)
+        if mgr is None:
+            raise HTTPException(409, f"远端主机 {spec.host} 未连接")
+        try:
+            rc, out = await asyncio.to_thread(mgr.exec_in, node_id, body.cmd)
         except KeyError as e:
             raise HTTPException(404, str(e)) from e
     else:
@@ -125,7 +136,7 @@ async def exec_in_node(node_id: int, body: ExecBody) -> dict[str, Any]:
 async def get_logs(node: int, tail: int = 200) -> dict[str, Any]:
     """获取指定节点容器的日志。支持本地和远端节点。"""
     sess = get_session()
-    if not sess.docker_mgr and not sess.remote_mgrs:
+    if not sess.docker_mgr and not sess.remote_mgrs and not sess.host_mgrs:
         raise HTTPException(409, "没有正在运行的仿真")
 
     spec = next((s for s in sess.specs if s.id == node), None)
@@ -137,6 +148,14 @@ async def get_logs(node: int, tail: int = 200) -> dict[str, Any]:
             raise HTTPException(409, "本地 Docker 管理器不可用")
         try:
             text = await asyncio.to_thread(sess.docker_mgr.logs, node, tail=tail)
+        except KeyError as e:
+            raise HTTPException(404, str(e)) from e
+    elif spec.host_type == "host-manet":
+        mgr = sess.host_mgrs.get(spec.host)
+        if mgr is None:
+            raise HTTPException(409, f"远端主机 {spec.host} 未连接")
+        try:
+            text = await asyncio.to_thread(mgr.logs, node, tail=tail)
         except KeyError as e:
             raise HTTPException(404, str(e)) from e
     else:
