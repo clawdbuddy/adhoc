@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { useSimConfig } from '@/hooks/useSimConfig';
@@ -41,6 +41,14 @@ function App() {
 
   const [activePage, setActivePage] = useState<PageKey>('dashboard');
   const [nodeSpecs, setNodeSpecs] = useState<NodeSpec[] | undefined>(undefined);
+
+  // Load node specs from backend on mount (so Start always includes remote-host config)
+  useEffect(() => {
+    fetch('/api/nodes/specs')
+      .then(r => r.ok ? r.json() : [])
+      .then(data => { if (Array.isArray(data) && data.length > 0) setNodeSpecs(data); })
+      .catch(() => {});
+  }, []);
 
   const handleStart = () => {
     startSimulation(config, undefined, nodeSpecs);
