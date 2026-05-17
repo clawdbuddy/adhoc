@@ -7,7 +7,7 @@ creates a matching VXLAN + bridge + TAP for each host node.
 Data path:
 
   Host App → vxlan-{id} ── UDP/4789 ──► Controller vxlan-{id}
-                                          │
+                                          |
                                      mesh-br-{id}
                                           ├── mesh-tap-{id} → ns-3 PHY/MAC
 
@@ -18,6 +18,7 @@ to SSH-start the container and create the controller-side bridge + TAP.
 """
 from __future__ import annotations
 
+import io
 import logging
 import threading
 from dataclasses import dataclass
@@ -37,11 +38,11 @@ log = logging.getLogger(__name__)
 HOST_CONTAINER_PREFIX = "manet-host-node-"
 
 
-def _load_pkey(key_path: str) -> Optional["paramiko.PKey"]:
-    """Try loading a private key file, auto-detecting the type."""
+def _load_pkey(key_data: str) -> Optional["paramiko.PKey"]:
+    """Try loading a private key from its PEM/OpenSSH content string."""
     for cls in (RSAKey, Ed25519Key, ECDSAKey):
         try:
-            return cls.from_private_key_file(key_path)
+            return cls.from_private_key(io.StringIO(key_data))
         except Exception:
             continue
     return None
@@ -110,7 +111,7 @@ class HostNodeMgr:
                 if pkey is not None:
                     connect_kwargs["pkey"] = pkey
                 else:
-                    connect_kwargs["key_filename"] = self.ssh_key
+                    raise ValueError(f"无法解析 SSH 私钥 (host={self.host_ip})")
             elif self.ssh_password:
                 connect_kwargs["password"] = self.ssh_password
             client.connect(**connect_kwargs)
