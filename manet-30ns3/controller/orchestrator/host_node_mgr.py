@@ -217,12 +217,14 @@ class HostNodeMgr:
                  name, self.host_ip, spec.image, spec.ip)
 
         # 3) docker run (--net=host, --privileged)
-        #    If spec.image is the default container image, use the host-specific one.
-        #    Otherwise trust the caller's image choice (e.g. GHCR path).
-        if spec.image == "manet-node:latest":
+        #    Map local image names to GHCR host-manet-node images.
+        #    If the caller specifies a custom image (e.g. GHCR path), use it as-is.
+        image = spec.image or "manet-node:latest"
+        if image in ("manet-node:latest", "host-manet-node:latest"):
             image = "ghcr.io/clawdbuddy/host-manet-node:main"
-        else:
-            image = spec.image
+        # v1.1.4+ tagged images
+        if image == "host-manet-node:1.1.4":
+            image = "ghcr.io/clawdbuddy/host-manet-node:1.1.4"
         # Auto-pull if not present
         self._exec(f"docker images -q {image} 2>/dev/null | grep -q . || docker pull {image}")
         run_cmd = (
