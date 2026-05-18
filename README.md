@@ -8,7 +8,7 @@
 
 ## 控制器启动方式
 
-### Docker（推荐）
+### Docker — 本地构建
 
 ```bash
 cd manet-30ns3
@@ -21,6 +21,27 @@ docker compose build controller
 docker compose up -d controller
 curl -s localhost:8000/api/health      # {"ok":true}
 ```
+
+### Docker — 从 GHCR 拉取（无需本地构建）
+
+```bash
+cd manet-30ns3
+
+# 拉取控制器镜像 + 节点镜像
+docker compose pull controller
+docker pull ghcr.io/clawdbuddy/manet-node:latest
+docker tag ghcr.io/clawdbuddy/manet-node:latest manet-node:latest
+
+# 启动控制器
+docker compose up -d controller
+curl -s localhost:8000/api/health      # {"ok":true}
+```
+
+> 远端主机使用 `host-manet-node` 时，远端也需提前拉取：
+> ```bash
+> ssh user@remote-host
+> docker pull ghcr.io/clawdbuddy/host-manet-node:main
+> ```
 
 ### Conda 物理主机
 
