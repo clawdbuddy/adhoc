@@ -22,25 +22,41 @@ docker compose up -d controller
 curl -s localhost:8000/api/health      # {"ok":true}
 ```
 
-### Docker — 从 GHCR 拉取（无需本地构建）
+### Docker — 从 GHCR 拉取（无需源码）
 
 ```bash
-cd manet-30ns3
-
-# 拉取控制器镜像 + 节点镜像
-docker compose pull controller
+# 1. 拉取节点镜像
 docker pull ghcr.io/clawdbuddy/manet-node:latest
 docker tag ghcr.io/clawdbuddy/manet-node:latest manet-node:latest
 
-# 启动控制器
-docker compose up -d controller
-curl -s localhost:8000/api/health      # {"ok":true}
+# 2. 启动控制器
+docker run -d --name controller \
+  --privileged --network host --pid host \
+  --cap-add NET_ADMIN --cap-add NET_RAW --cap-add SYS_ADMIN \
+  -v /var/run/docker.sock:/var/run/docker.sock \
+  -v /var/run/netns:/var/run/netns \
+  -v $(pwd)/results:/results \
+  -v $(pwd)/config:/app/config \
+  ghcr.io/clawdbuddy/manet-controller:latest
+
+# 3. 检查健康
+curl localhost:8000/api/health
+
+# 4. 启动仿真
+curl -X POST localhost:8000/api/sim/start \
+  -H 'content-type: application/json' \
+  -d '{"preset":"debug"}'
 ```
 
 > 远端主机使用 `host-manet-node` 时，远端也需提前拉取：
 > ```bash
 > ssh user@remote-host
 > docker pull ghcr.io/clawdbuddy/host-manet-node:main
+> ```
+
+> 如需停止并删除控制器容器：
+> ```bash
+> docker stop controller && docker rm controller
 > ```
 
 ### Conda 物理主机
