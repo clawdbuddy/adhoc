@@ -6,12 +6,52 @@
 
 ---
 
+## 控制器启动方式
+
+### Docker（推荐）
+
+```bash
+cd manet-30ns3
+
+# 构建镜像
+docker compose --profile build build node-image-builder
+docker compose build controller
+
+# 启动控制器（--privileged --network host --pid host）
+docker compose up -d controller
+curl -s localhost:8000/api/health      # {"ok":true}
+```
+
+### Conda 物理主机
+
+```bash
+cd manet-30ns3
+
+# 首次安装系统依赖 + conda 环境 + systemd 服务
+sudo bash setup-controller.sh
+
+# 手动启动
+conda activate manet-controller
+PYTHONPATH=./controller MANET_WEB_DIR=./web-manager/dist \
+  python3 -m uvicorn controller.api.main:app --host 0.0.0.0 --port 8000
+```
+
+### 独立可执行程序
+
+```bash
+cd manet-30ns3
+bash build-controller.sh               # 输出 dist/manet-controller/
+./dist/manet-controller/manet-controller
+```
+
+---
+
 ## 快速启动
 
 ```bash
 cd manet-30ns3
 
-# 1. 构建镜像
+# 1. 构建镜像（Docker 方式启动时才需执行）
 docker compose --profile build build node-image-builder
 docker compose build controller
 
