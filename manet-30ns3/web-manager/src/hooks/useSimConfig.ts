@@ -170,47 +170,53 @@ export function useSimConfig(sim?: SimApi) {
     setActivePreset('custom');
   }, []);
 
-  // ---- auto-save to backend via WebSocket (debounce 500ms) ----
+  // ---- auto-save to backend via REST PUT /api/config (debounce 500ms) ----
+  // 优先使用 REST 保存配置，可靠且不需要 WebSocket 连接。
   const saveConfig = useCallback(async (cfg: SimConfig) => {
-    if (!sim) {
-      // 无 WebSocket 时回退到 REST PUT
-      setSaveStatus('saving');
-      try {
-        const res = await fetch(`${API_BASE}/api/config`, {
-          method: 'PUT',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify(cfg),
-        });
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        lastSavedJsonRef.current = JSON.stringify(cfg);
-        setSaveStatus('saved');
-        setTimeout(() => setSaveStatus('idle'), 2000);
-      } catch {
-        setSaveStatus('error');
-      }
-      return;
-    }
-
     setSaveStatus('saving');
     try {
-      const params: Record<string, unknown> = {};
-      (Object.keys(cfg) as Array<keyof SimConfig>).forEach(key => {
-        params[key] = cfg[key];
+      const res = await fetch(`${API_BASE}/api/config`, {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(cfg),
       });
-      const result = await sim.batchSetParams(params);
-      // 忽略预期内的失败（如运行时不可修改的参数），只把真正异常视为错误
-      const realFailures = (result.results || []).filter(
-        (r: any) => !r.ok && !(r.reason || '').includes('requires simulator restart')
-      );
-      if (realFailures.length === 0) {
-        lastSavedJsonRef.current = JSON.stringify(cfg);
-        setSaveStatus('saved');
-        setTimeout(() => setSaveStatus('idle'), 2000);
-      } else {
-        console.warn('save failed for keys:', realFailures.map((r: any) => r.key));
-        setSaveStatus('error');
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      if (data.ok === false) {
+        const reasons = (data.results || [])
+          .filter((r: { ok?: boolean }) => r.ok === false)
+          .map((r: { key?: string; reason?: string }) => r.key || r.reason || 'unknown')
+          .join(', ');
+        if (reasons) console.warn('save partial failures:', reasons);
       }
-    } catch {
+      lastSavedJsonRef.current = JSON.stringify(cfg);
+      setSaveStatus('saved');
+      setTimeout(() => setSaveStatus('idle'), 2000);
+    } catch (e) {
+      console.warn('saveConfig REST failed:', e);
+
+      // 兜底：WebSocket 路径（仿真运行中需要实时下发的参数）
+      if (sim) {
+        try {
+          const params: Record<string, unknown> = {};
+          (Object.keys(cfg) as Array<keyof SimConfig>).forEach(key => {
+            params[key] = cfg[key];
+          });
+          const result = await sim.batchSetParams(params);
+          const realFailures = (result.results || []).filter(
+            (r: { ok: boolean; reason?: string }) => !r.ok && !(r.reason || '').includes('requires simulator restart')
+          );
+          if (realFailures.length === 0) {
+            lastSavedJsonRef.current = JSON.stringify(cfg);
+            setSaveStatus('saved');
+            setTimeout(() => setSaveStatus('idle'), 2000);
+            return;
+          }
+        } catch {
+          // WS 也失败，继续报 error
+        }
+      }
+
       setSaveStatus('error');
     }
   }, [sim]);

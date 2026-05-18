@@ -125,19 +125,24 @@ def ensure_bridge(
     ipr.link("set", index=idx, state="up")
 
 
-def create_veth(host_name: str, peer_name: str, node_id: int) -> None:
+def create_veth(host_name: str, peer_name: str, node_id: int, mtu: int = 1400) -> None:
     """veth pair; host-side joins the per-node bridge and goes up.
-    Peer-side is left in the host netns (caller moves it into the container)."""
+    Peer-side is left in the host netns (caller moves it into the container).
+    MTU is set to 1400 by default to account for VXLAN overhead."""
     bridge = node_bridge_name(node_id)
     ipr = _get_ipr()
     if _get_link_index(ipr, host_name) is None:
         ipr.link("add", ifname=host_name, kind="veth", peer={"ifname": peer_name})
         log.info("created veth pair %s ↔ %s", host_name, peer_name)
     host_idx = _get_link_index(ipr, host_name)
+    peer_idx = _get_link_index(ipr, peer_name)
     br_idx = _get_link_index(ipr, bridge)
     if br_idx is None:
         raise RuntimeError(f"bridge {bridge} missing; call ensure_node_bridge({node_id}) first")
     ipr.link("set", index=host_idx, master=br_idx)
+    ipr.link("set", index=host_idx, mtu=mtu)
+    if peer_idx:
+        ipr.link("set", index=peer_idx, mtu=mtu)
     ipr.link("set", index=host_idx, state="up")
 
 
@@ -164,8 +169,12 @@ def move_to_netns(
     """Move `peer_name` (host-side) into the netns identified by `pid`,
     rename it to `rename_to`, optionally set MAC / assign IP, and bring it up."""
     netns_path = f"/proc/{pid}/ns/net"
-    if not os.path.exists(netns_path):
-        raise RuntimeError(f"container pid {pid} has no /proc/<pid>/ns/net (already exited?)")
+    # 直接尝试打开文件，而不是用 os.path.exists（容器内权限检查可能不准确）
+    try:
+        with open(netns_path) as f:
+            pass
+    except (OSError, PermissionError) as e:
+        raise RuntimeError(f"container pid {pid} has no accessible /proc/<pid>/ns/net: {e}")
     # 1) move
     ipr = _get_ipr()
     idx = _get_link_index(ipr, peer_name)
@@ -208,7 +217,7 @@ def move_to_netns(
         ns.link("set", index=peer_idx, state="up")
 
 
-def create_tap(name: str, node_id: int) -> None:
+def create_tap(name: str, node_id: int, mtu: int = 1400) -> None:
     """ip tuntap add `name` mode tap; attach to per-node bridge; bring up."""
     bridge = node_bridge_name(node_id)
     ipr = _get_ipr()
@@ -221,6 +230,7 @@ def create_tap(name: str, node_id: int) -> None:
         raise RuntimeError(f"bridge {bridge} missing")
     ipr.link("set", index=idx, master=br_idx)
     ipr.link("set", index=idx, state="up")
+    ipr.link("set", index=idx, mtu=mtu)
 
 
 def create_vxlan(
@@ -267,6 +277,7 @@ def create_vxlan_on_controller(
     per-node bridge mesh-br-{node_id}.  The ns-3 tap mesh-tap-{node_id} is
     already (or will be) on the same bridge, so frames from the remote host
     flow: vxlan -> bridge -> tap -> ns-3.
+    MTU is set to 1400 to accommodate VXLAN encapsulation overhead.
     """
     name = f"vxlan-{node_id}"
     vni = 100 + node_id
@@ -277,13 +288,14 @@ def create_vxlan_on_controller(
     if idx is None:
         raise RuntimeError(f"vxlan {name} missing after creation")
     ipr.link("set", index=idx, state="up")
+    ipr.link("set", index=idx, mtu=1400)
 
     bridge = node_bridge_name(node_id)
     br_idx = _get_link_index(ipr, bridge)
     if br_idx is None:
         raise RuntimeError(f"bridge {bridge} missing; call ensure_node_bridge({node_id}) first")
     ipr.link("set", index=idx, master=br_idx)
-    log.info("attached %s to %s", name, bridge)
+    log.info("attached %s (mtu=1400) to %s", name, bridge)
 
 
 def delete_link(name: str) -> None:

@@ -1,0 +1,2 @@
+Bug ID,Severity,Test Case,Summary,Steps to Reproduce,Expected,Actual,Status,Reporter,Date
+BUG-001,P4,TC-NET-007 (known limitation),mesh_mac node_15 returns ':10' not ':0f',Code review of netns.py:mesh_mac(15) formula,Should end with ':0f' for node 15,Ends with ':10' (16 in hex) — code formula uses node_id+1,Known,Code comment correct; test updated to match,2026-05-17

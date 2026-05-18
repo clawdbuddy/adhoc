@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { useSimConfig } from '@/hooks/useSimConfig';
@@ -8,10 +8,10 @@ import { ConfigPanel } from '@/sections/ConfigPanel';
 import { TopologyView } from '@/sections/TopologyView';
 import { LogView } from '@/sections/LogView';
 import { DynamicControl } from '@/sections/DynamicControl';
-import { ProtoTest } from '@/sections/ProtoTest';
+import { NodeManager } from '@/sections/NodeManager';
 import type { NodeSpec } from '@/types/config';
 import {
-  LayoutDashboard, Settings, Network, ScrollText, Zap, Radio,
+  LayoutDashboard, Settings, Network, ScrollText, Zap, Server,
   Play, Square, RotateCw, Wifi, Route,
 } from 'lucide-react';
 import './App.css';
@@ -24,7 +24,7 @@ const NAV_ITEMS = [
   { key: 'dashboard', label: '仪表板', icon: LayoutDashboard },
   { key: 'config', label: '配置', icon: Settings },
   { key: 'dynamic', label: '动态控制', icon: Zap },
-  { key: 'proto', label: '协议测试', icon: Radio },
+  { key: 'nodes', label: '节点管理', icon: Server },
   { key: 'logs', label: '日志', icon: ScrollText },
 ] as const;
 
@@ -41,6 +41,14 @@ function App() {
 
   const [activePage, setActivePage] = useState<PageKey>('dashboard');
   const [nodeSpecs, setNodeSpecs] = useState<NodeSpec[] | undefined>(undefined);
+
+  // Load node specs from backend on mount (so Start always includes remote-host config)
+  useEffect(() => {
+    fetch('/api/nodes/specs')
+      .then(r => r.ok ? r.json() : [])
+      .then(data => { if (Array.isArray(data) && data.length > 0) setNodeSpecs(data); })
+      .catch(() => {});
+  }, []);
 
   const handleStart = () => {
     startSimulation(config, undefined, nodeSpecs);
@@ -327,10 +335,8 @@ function App() {
             </div>
           )}
 
-          {activePage === 'proto' && (
-            <div className="h-full overflow-hidden animate-fade-in">
-              <ProtoTest />
-            </div>
+          {activePage === 'nodes' && (
+            <NodeManager onNodeSpecsChange={setNodeSpecs} />
           )}
 
           {activePage === 'logs' && (

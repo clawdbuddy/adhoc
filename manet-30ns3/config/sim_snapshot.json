@@ -1,49 +1,28 @@
 {
-  "preset": "debug",
+  "preset": null,
   "positions": [
     {
-      "x": 10.0,
-      "y": 10.0,
+      "x": 0.0,
+      "y": 0.0,
       "z": 0.0
     },
     {
-      "x": 60.0,
-      "y": 10.0,
-      "z": 0.0
-    },
-    {
-      "x": 110.0,
-      "y": 10.0,
-      "z": 0.0
-    },
-    {
-      "x": 160.0,
-      "y": 10.0,
-      "z": 0.0
-    },
-    {
-      "x": 210.0,
-      "y": 10.0,
+      "x": 50.0,
+      "y": 0.0,
       "z": 0.0
     }
   ],
   "txPower": [
-    30.0,
-    30.0,
-    30.0,
-    30.0,
-    30.0
+    20.0,
+    20.0
   ],
   "rxSensitivity": [
-    -92.0,
-    -92.0,
-    -92.0,
     -92.0,
     -92.0
   ],
   "pathLossExponent": 2.0,
   "frequencyMhz": 2412,
   "channelWidthMhz": 20,
-  "rangeTargetM": 200.0,
+  "rangeTargetM": 500.0,
   "pathLossModel": "FreeSpace"
 }

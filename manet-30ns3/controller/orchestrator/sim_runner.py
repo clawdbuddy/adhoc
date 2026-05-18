@@ -402,7 +402,15 @@ class SimRunner:
             ns.network.Ipv4Mask("255.255.255.0"),
             ns.network.Ipv4Address("0.0.0.10"),
         )
-        ipv4.Assign(devices)
+        if cfg.no_ip_node_indices:
+            filtered = ns.network.NetDeviceContainer()
+            for i in range(cfg.n_nodes):
+                if i not in cfg.no_ip_node_indices:
+                    filtered.Add(devices.Get(i))
+            if filtered.GetN() > 0:
+                ipv4.Assign(filtered)
+        else:
+            ipv4.Assign(devices)
 
         # 9. TapBridge or OnOff internal traffic
         if cfg.traffic_mode == "tap":
@@ -413,6 +421,7 @@ class SimRunner:
                 tb_helper.SetAttribute("DeviceName", ns.core.StringValue(tap_name))
                 tb_helper.Install(nodes.Get(i), devices.Get(i))
                 log.info("TapBridge node-%d ↔ %s", i, tap_name)
+
         else:
             # onoff mode: ns-3 internal traffic for baseline throughput test
             sink_addr = _to_ns3_address(
@@ -452,6 +461,10 @@ class SimRunner:
                 "OnOff traffic: node-%d → node-0 @ %s, pkt=%dB, port=%d",
                 cfg.n_nodes - 1, cfg.onoff_data_rate, cfg.onoff_packet_size, cfg.onoff_sink_port
             )
+
+        # 9b. Host-manet-nodes use the mesh peer MAC for the remote VXLAN,
+        # so no proxy entries are needed — the 802.11s mesh treats the
+        # remote container as a local mesh peer.
 
         # 10. FlowMonitor
         if cfg.flow_monitor:
@@ -997,6 +1010,7 @@ class SimRunner:
     # -------------------------------------------------------------- routing
     @staticmethod
     def _install_routing(ns: Any, cfg: SimConfig, nodes: Any) -> None:
+        no_ip_set = set(cfg.no_ip_node_indices or [])
         stack = ns.internet.InternetStackHelper()
         proto = cfg.routing_protocol
         if proto == "aodv":
@@ -1024,15 +1038,19 @@ class SimRunner:
                      ns.core.TimeValue(ns.core.Seconds(cfg.dsdv_settling_time)))
             stack.SetRoutingHelper(dsdv)
         elif proto == "dsr":
-            # DSR requires a separate dsrMain.Install; follow that pattern strictly.
-            stack.Install(nodes)
-            dsr_helper = ns.dsr.DsrHelper()
-            dsr_main = ns.dsr.DsrMainHelper()
-            dsr_main.Install(dsr_helper, nodes)
-            return  # stack already installed
+            if not no_ip_set:
+                stack.Install(nodes)
+                dsr_helper = ns.dsr.DsrHelper()
+                dsr_main = ns.dsr.DsrMainHelper()
+                dsr_main.Install(dsr_helper, nodes)
+                return
         # else "none": IP stack with default static routing only
 
-        stack.Install(nodes)
+        # Install stack per-node, skipping no-ip nodes
+        for i in range(nodes.GetN()):
+            if i in no_ip_set:
+                continue
+            stack.Install(nodes.Get(i))
 
     # ------------------------------------------------- dynamic control
     def _inject_command(self, fn: Callable[[], None]) -> dict[str, Any]:

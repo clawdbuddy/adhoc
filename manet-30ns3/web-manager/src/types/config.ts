@@ -157,6 +157,7 @@ export interface NodeSpec {
   ip: string;
   role: string;
   host: string;
+  hostType?: string;      // "container" | "host-manet"
   image?: string;
   userAppMode?: string;
   userAppCmd?: string;

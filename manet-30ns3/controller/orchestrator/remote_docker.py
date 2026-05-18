@@ -28,12 +28,23 @@ from . import netns
 
 try:
     import paramiko
+    from paramiko import RSAKey, Ed25519Key, ECDSAKey
 except ImportError as _e:  # pragma: no cover
     paramiko = None  # type: ignore[assignment]
 
 log = logging.getLogger(__name__)
 
 CONTAINER_PREFIX = "manet-node-"
+
+
+def _load_pkey(key_path: str) -> "paramiko.PKey | None":
+    """Try loading a private key file, auto-detecting the type."""
+    for cls in (RSAKey, Ed25519Key, ECDSAKey):
+        try:
+            return cls.from_private_key_file(key_path)
+        except Exception:
+            continue
+    return None
 
 
 @dataclass
@@ -88,7 +99,11 @@ class RemoteDockerMgr:
                 "banner_timeout": 30,
             }
             if self.ssh_key:
-                connect_kwargs["key_filename"] = self.ssh_key
+                pkey = _load_pkey(self.ssh_key)
+                if pkey is not None:
+                    connect_kwargs["pkey"] = pkey
+                else:
+                    connect_kwargs["key_filename"] = self.ssh_key
             elif self.ssh_password:
                 connect_kwargs["password"] = self.ssh_password
             client.connect(**connect_kwargs)

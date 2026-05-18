@@ -1,15 +1,38 @@
-"""节点操作路由：GET/POST /api/nodes、/api/flows、/api/logs。"""
+"""节点操作路由：GET/POST /api/nodes、/api/flows、/api/logs 以及节点配置持久化。"""
 from __future__ import annotations
 
 import asyncio
+import json
+import logging
 import re
 import shlex
+from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, field_validator
 
 from controller.api.state import get_session
+
+NODE_SPECS_PATH: Path = Path("/app/config/node_specs.json")
+
+
+def _load_node_specs() -> list[dict[str, Any]]:
+    """从 JSON 文件加载节点配置。"""
+    if not NODE_SPECS_PATH.exists():
+        return []
+    try:
+        return json.loads(NODE_SPECS_PATH.read_text(encoding="utf-8"))
+    except Exception:
+        return []
+
+
+def _save_node_specs(specs: list[dict[str, Any]]) -> None:
+    """将节点配置持久化到 JSON 文件。"""
+    NODE_SPECS_PATH.parent.mkdir(parents=True, exist_ok=True)
+    NODE_SPECS_PATH.write_text(json.dumps(specs, indent=2, ensure_ascii=False), encoding="utf-8")
+
+log = logging.getLogger(__name__)
 
 router = APIRouter(tags=["nodes"])
 
@@ -60,6 +83,24 @@ def _validate_cmd(cmd: str | list[str]) -> None:
         raise HTTPException(400, f"命令 '{name}' 不在白名单内")
 
 
+class NodeSpecsBody(BaseModel):
+    """节点配置列表的请求体。"""
+    specs: list[dict[str, Any]]
+
+
+@router.get("/api/nodes/specs")
+async def get_node_specs() -> list[dict[str, Any]]:
+    """获取保存的节点配置列表。"""
+    return _load_node_specs()
+
+
+@router.put("/api/nodes/specs")
+async def save_node_specs(body: NodeSpecsBody) -> dict[str, Any]:
+    """保存节点配置列表。"""
+    _save_node_specs(body.specs)
+    return {"ok": True, "count": len(body.specs)}
+
+
 class ExecBody(BaseModel):
     """节点内执行命令的请求体。"""
     cmd: str | list[str]
@@ -95,7 +136,7 @@ async def list_flows() -> list[dict[str, Any]]:
 async def exec_in_node(node_id: int, body: ExecBody) -> dict[str, Any]:
     """在指定节点容器内执行命令。支持本地和远端节点。"""
     sess = get_session()
-    if not sess.docker_mgr and not sess.remote_mgrs:
+    if not sess.docker_mgr and not sess.remote_mgrs and not sess.host_mgrs:
         raise HTTPException(409, "没有正在运行的仿真")
 
     # 查找节点所属主机
@@ -108,6 +149,14 @@ async def exec_in_node(node_id: int, body: ExecBody) -> dict[str, Any]:
             raise HTTPException(409, "本地 Docker 管理器不可用")
         try:
             rc, out = await asyncio.to_thread(sess.docker_mgr.exec_in, node_id, body.cmd)
+        except KeyError as e:
+            raise HTTPException(404, str(e)) from e
+    elif spec.host_type == "host-manet":
+        mgr = sess.host_mgrs.get(spec.host)
+        if mgr is None:
+            raise HTTPException(409, f"远端主机 {spec.host} 未连接")
+        try:
+            rc, out = await asyncio.to_thread(mgr.exec_in, node_id, body.cmd)
         except KeyError as e:
             raise HTTPException(404, str(e)) from e
     else:
@@ -125,7 +174,7 @@ async def exec_in_node(node_id: int, body: ExecBody) -> dict[str, Any]:
 async def get_logs(node: int, tail: int = 200) -> dict[str, Any]:
     """获取指定节点容器的日志。支持本地和远端节点。"""
     sess = get_session()
-    if not sess.docker_mgr and not sess.remote_mgrs:
+    if not sess.docker_mgr and not sess.remote_mgrs and not sess.host_mgrs:
         raise HTTPException(409, "没有正在运行的仿真")
 
     spec = next((s for s in sess.specs if s.id == node), None)
@@ -137,6 +186,14 @@ async def get_logs(node: int, tail: int = 200) -> dict[str, Any]:
             raise HTTPException(409, "本地 Docker 管理器不可用")
         try:
             text = await asyncio.to_thread(sess.docker_mgr.logs, node, tail=tail)
+        except KeyError as e:
+            raise HTTPException(404, str(e)) from e
+    elif spec.host_type == "host-manet":
+        mgr = sess.host_mgrs.get(spec.host)
+        if mgr is None:
+            raise HTTPException(409, f"远端主机 {spec.host} 未连接")
+        try:
+            text = await asyncio.to_thread(mgr.logs, node, tail=tail)
         except KeyError as e:
             raise HTTPException(404, str(e)) from e
     else:

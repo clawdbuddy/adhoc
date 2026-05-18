@@ -3,10 +3,14 @@ from __future__ import annotations
 
 from typing import Any
 
+import logging
+
 from fastapi import APIRouter, HTTPException
 
 from controller.api.state import Session, get_session
 from controller.orchestrator import RunRequest, PRESETS
+
+log = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/sim", tags=["sim"])
 
@@ -28,6 +32,7 @@ async def start_sim(req: RunRequest | None = None) -> dict[str, Any]:
     except KeyError as e:
         raise HTTPException(400, str(e)) from e
     except Exception as e:  # noqa: BLE001
+        log.exception("仿真启动失败")
         raise HTTPException(500, f"启动失败: {e!r}") from e
     return {"ok": True, "running": sess.running, "nNodes": sess.config.n_nodes}
 
@@ -57,7 +62,8 @@ async def status() -> dict[str, Any]:
             1 for s in sess.specs
             if (
                 (s.host == "local" and sess.docker_mgr and sess.docker_mgr.is_running(s.id))
-                or (s.host != "local" and sess.remote_mgrs.get(s.host) and sess.remote_mgrs[s.host].is_running(s.id))
+                or (s.host != "local" and s.host_type == "host-manet" and sess.host_mgrs.get(s.host) and sess.host_mgrs[s.host].is_running(s.id))
+                or (s.host != "local" and s.host_type != "host-manet" and sess.remote_mgrs.get(s.host) and sess.remote_mgrs[s.host].is_running(s.id))
             )
         ),
         "preset": sess.preset,

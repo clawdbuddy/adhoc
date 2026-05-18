@@ -55,3 +55,5 @@ Thumbs.db
 
 # Claude Code 本地状态（settings、定时任务锁等）
 .claude/
+host_key
+docs_dev/
