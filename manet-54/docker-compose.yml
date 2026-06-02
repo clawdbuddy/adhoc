@@ -1,0 +1,15 @@
+services:
+  phy-manet-node:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: phy-manet-node:latest
+    container_name: phy-manet-node
+    ports:
+      - "8000:8000"
+    environment:
+      - MANET_WEB_DIR=/app/dist
+      - MANET_PORT=8000
+    volumes:
+      - ./controller/dist:/app/dist
+    restart: unless-stopped
