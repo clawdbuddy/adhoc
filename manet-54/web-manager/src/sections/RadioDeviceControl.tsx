@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -271,15 +271,134 @@ function DynamicParamsTab({ host, port }: { host: string; port: number }) {
 }
 
 // ---------------------------------------------------------------------
+// Topology Canvas
+// ---------------------------------------------------------------------
+
+interface TopoNode {
+  id: number;
+  x: number;
+  y: number;
+  neighbors: number[];
+}
+
+interface TopoLink {
+  src: number;
+  dst: number;
+  quality: number;
+}
+
+// Parse 0x0310: 每条链路 5 字节 = 源节点ID(1B) + 目的节点ID(1B) + 链路质量(3B)
+function parseTopology(reply: number[]): { nodes: TopoNode[]; links: TopoLink[] } {
+  const linkMap = new Map<string, TopoLink>();
+  for (let i = 0; i + 4< reply.length; i += 5) {
+    const src = reply[i];
+    const dst = reply[i + 1];
+    const quality = (reply[i + 2] << 16) | (reply[i + 3] << 8) | reply[i + 4];
+    const key = src < dst ? `${src}-${dst}` : `${dst}-${src}`;
+    if (!linkMap.has(key)) linkMap.set(key, { src, dst, quality });
+  }
+  const nodes = new Map<number, TopoNode>();
+  linkMap.forEach(({ src, dst }) => {
+    if (!nodes.has(src)) nodes.set(src, { id: src, x: 0, y: 0, neighbors: [] });
+    if (!nodes.has(dst)) nodes.set(dst, { id: dst, x: 0, y: 0, neighbors: [] });
+    nodes.get(src)!.neighbors.push(dst);
+    nodes.get(dst)!.neighbors.push(src);
+  });
+  const nodeArr = Array.from(nodes.values());
+  const n = nodeArr.length;
+  nodeArr.forEach((nd, i) => {
+    const angle = (2 * Math.PI * i) / n - Math.PI / 2;
+    const radius = Math.min(160, 40 + n * 20);
+    nd.x = 200 + radius * Math.cos(angle);
+    nd.y = 200 + radius * Math.sin(angle);
+  });
+  return { nodes: nodeArr, links: Array.from(linkMap.values()) };
+}
+
+function drawTopology(canvas: HTMLCanvasElement, nodes: TopoNode[], links: TopoLink[]) {
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return;
+  const dpr = window.devicePixelRatio || 1;
+  const w = canvas.offsetWidth;
+  const h = canvas.offsetHeight;
+  if (canvas.width !== w * dpr) canvas.width = w * dpr;
+  if (canvas.height !== h * dpr) canvas.height = h * dpr;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, w, h);
+  const scale = Math.min(w / 440, h / 440);
+  const ox = w / 2;
+  const oy = h / 2;
+
+  links.forEach(({ src, dst, quality }) => {
+    const s = nodes.find(n => n.id === src);
+    const d = nodes.find(n => n.id === dst);
+    if (!s || !d) return;
+    const sx = ox + (s.x - 200) * scale;
+    const sy = oy + (s.y - 200) * scale;
+    const dx = ox + (d.x - 200) * scale;
+    const dy = oy + (d.y - 200) * scale;
+    const alpha = Math.min(0.9, 0.3 + (quality / 255) * 0.6);
+    ctx.strokeStyle = `rgba(14, 165, 233, ${alpha})`;
+    ctx.lineWidth = Math.max(1, quality / 64);
+    ctx.beginPath(); ctx.moveTo(sx, sy); ctx.lineTo(dx, dy); ctx.stroke();
+  });
+
+  const NODE_R = Math.max(8, 14 * scale);
+  nodes.forEach(nd => {
+    const cx = ox + (nd.x - 200) * scale;
+    const cy = oy + (nd.y - 200) * scale;
+    ctx.beginPath(); ctx.arc(cx, cy, NODE_R, 0, Math.PI * 2);
+    ctx.fillStyle = nd.neighbors.length > 0 ? '#0ea5e9' : '#94a3b8';
+    ctx.fill(); ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.stroke();
+    ctx.fillStyle = '#fff'; ctx.font = `${Math.max(10, 12 * scale)}px system-ui`;
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText(String(nd.id), cx, cy);
+  });
+}
+
+function TopologyCanvas({ topoData }: { topoData: { nodes: TopoNode[]; links: TopoLink[] } | null }) {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  useEffect(() => {
+    if (!canvasRef.current || !topoData) return;
+    drawTopology(canvasRef.current, topoData.nodes, topoData.links);
+  }, [topoData]);
+
+  if (!topoData) return (
+    <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50/40 flex items-center justify-center" style={{ height: 360 }}>
+      <div className="text-center text-muted-foreground">
+        <Network className="h-8 w-8 mx-auto mb-2 opacity-40" />
+        <p className="text-xs">点击「查询拓扑」获取网络结构</p>
+      </div>
+    </div>
+  );
+  return (
+    <div className="rounded-xl border bg-card shadow-card overflow-hidden">
+      <div className="px-4 py-2 border-b flex items-center gap-2 bg-slate-50/60">
+        <div className="h-2 w-2 rounded-full bg-cyan-500 animate-pulse-soft" />
+        <span className="text-xs font-medium text-muted-foreground">网络拓扑 · {topoData.nodes.length} 节点 · {topoData.links.length} 条链路</span>
+      </div>
+      <canvas ref={canvasRef} className="w-full" style={{ height: 360 }} />
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------
 // Status Query Tab
 // ---------------------------------------------------------------------
 
 function StatusTab({ host, port }: { host: string; port: number }) {
   const [result, setResult] = useState<FrameResult | null>(null);
+  const [topoData, setTopoData] = useState<{ nodes: TopoNode[]; links: TopoLink[] } | null>(null);
 
   const sendFrame = useCallback(async (_desc: string, signalId: number, payload: Uint8Array, commType: 1 | 3 = 1) => {
     const r = await sendUdp(buildFrame(commType, signalId, payload), host, port);
-    setResult(r); return r;
+    setResult(r);
+    if (r.ok && r.raw && signalId === 0x0310) {
+      const hexParts = r.raw.replace(/[^a-fA-F0-9]/g, '').match(/.{2}/g) || [];
+      const bytes = hexParts.map(b => parseInt(b, 16));
+      setTopoData(parseTopology(bytes));
+    }
+    return r;
   }, [host, port]);
 
   return (
@@ -307,9 +426,11 @@ function StatusTab({ host, port }: { host: string; port: number }) {
         ))}
       </div>
 
+      <TopologyCanvas topoData={topoData} />
+
       <div className="rounded-xl border border-amber-200/60 bg-amber-50/80 p-3 text-amber-800 text-xs flex items-start gap-3">
         <AlertCircle className="h-4 w-4 shrink-0 mt-0.5 text-amber-500" />
-        <span><strong>主动上报 (0x02AF)</strong>：基带波形加载后按 <strong>5 秒周期</strong>主动上报。BYTE[0]=1 启用，BYTE[1]=1 ZZW 同步，BYTE[2]=1 CKL 同步。拓扑 (0x0310) 每条链路 5 字节：源MAC + 目的MAC + 链路质量。</span>
+        <span><strong>主动上报 (0x02AF)</strong>：基带波形加载后按 <strong>5 秒周期</strong>主动上报。BYTE[0]=1启用，BYTE[1]=1 ZZW 同步，BYTE[2]=1 CKL 同步。拓扑 (0x0310) 每条链路 5 字节：源节点ID(1B) + 目的节点ID(1B) + 链路质量(3B)。</span>
       </div>
 
       <ResultBanner result={result} />
