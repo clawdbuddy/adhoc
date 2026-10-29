@@ -4,6 +4,7 @@
 """
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
 from fastapi import APIRouter
@@ -34,10 +35,9 @@ async def put_config(cfg: SimConfig) -> dict[str, Any]:
     sess = get_session()
     store = sess.param_store
     if store is not None:
-        data = cfg.model_dump(by_alias=True)
-        results = store.batch_set(data, source="rest")
-        ok = all(r.get("ok") for r in results)
-        return {"ok": ok, "results": results}
+        # 配置保存与运行时调参分开：整份配置原子替换，避免逐字段校验失败或
+        # 保存文件时意外修改正在运行的无线环境。
+        return await asyncio.to_thread(store.save_config, cfg, source="rest")
 
     # fallback: 直接更新 SimConfig（兼容 ParamStore 未初始化时）
     from controller.orchestrator import save_config_to_file

@@ -59,6 +59,11 @@ export function Dashboard({ status, flows, nodes }: DashboardProps) {
   const totalRxNodes = nodes.reduce((sum, n) => sum + n.rxPackets, 0);
   const totalTxNodes = nodes.reduce((sum, n) => sum + n.txPackets, 0);
 
+  const received = flows.reduce((sum, f) => sum + f.rxPackets, 0);
+  const sent = flows.reduce((sum, f) => sum + f.txPackets, 0);
+  const lost = flows.reduce((sum, f) => sum + f.lostPackets, 0);
+  const throughput = flows.reduce((sum, f) => sum + f.throughput, 0);
+  const delay = received ? flows.reduce((sum, f) => sum + f.avgDelay * f.rxPackets, 0) / received : null;
   const onlineNodes = nodes.filter(n => n.status === 'online').length;
   const activeFlowCount = flows.filter(f => f.txPackets > 0).length;
 
@@ -103,7 +108,7 @@ export function Dashboard({ status, flows, nodes }: DashboardProps) {
           subValue="packets"
           icon={<ArrowUpFromLine className="h-4 w-4 text-cyan-500" />}
           iconBg="bg-cyan-500/10"
-          tooltip="所有节点 WifiNetDevice 发送包总数"
+          tooltip="所有节点 TAP 发送包总数"
         />
         <StatCard
           label="总接收量"
@@ -111,8 +116,13 @@ export function Dashboard({ status, flows, nodes }: DashboardProps) {
           subValue="packets"
           icon={<ArrowDownToLine className="h-4 w-4 text-violet-500" />}
           iconBg="bg-violet-500/10"
-          tooltip="所有节点 WifiNetDevice 接收包总数（含广播重复计数）"
+          tooltip="所有节点 TAP 接收包总数（含广播重复计数）"
         />
+      </div>
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+        <StatCard label="平均吞吐" value={flows.length ? throughput.toFixed(2) : '—'} subValue="Mbps · 自流开始累计平均" icon={<Activity className="h-4 w-4" />} iconBg="bg-primary/10" />
+        <StatCard label="平均端到端延迟" value={delay === null ? '—' : delay.toFixed(2)} subValue="ms · 按接收包数加权" icon={<Activity className="h-4 w-4" />} iconBg="bg-primary/10" />
+        <StatCard label="确认丢包率" value={sent ? `${(lost / sent * 100).toFixed(2)}%` : '—'} subValue="发送后 10 秒未收到；不含在途包" icon={<Activity className="h-4 w-4" />} iconBg="bg-primary/10" />
       </div>
     </div>
   );

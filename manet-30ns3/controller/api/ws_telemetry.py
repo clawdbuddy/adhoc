@@ -32,7 +32,8 @@ async def telemetry_ws(ws: WebSocket) -> None:
         param_queue = sess.param_store.subscribe()
 
     # 遥测帧订阅队列（仅在仿真运行时有效）
-    tele_queue = sess.telemetry.subscribe() if sess.telemetry else None
+    tele_owner = sess.telemetry
+    tele_queue = tele_owner.subscribe() if tele_owner else None
 
     # 如果既没有 param_store 也没有 telemetry，直接关闭
     if param_queue is None and tele_queue is None:
@@ -67,11 +68,26 @@ async def telemetry_ws(ws: WebSocket) -> None:
                 await _send_safe(ws, {"type": "error", "reqId": req_id, "reason": f"unknown type: {msg_type}"})
 
     async def _tele_loop() -> None:
-        """从 telemetry 泵接收帧并推送给客户端。"""
-        if tele_queue is None:
-            return
+        """跨启停重新订阅，已连接的页面无需刷新或重连。"""
+        nonlocal tele_owner, tele_queue
+        sent_idle = False
         while True:
-            frame = await tele_queue.get()
+            if sess.telemetry is not tele_owner:
+                if tele_owner is not None and tele_queue is not None:
+                    tele_owner.unsubscribe(tele_queue)
+                tele_owner = sess.telemetry
+                tele_queue = tele_owner.subscribe() if tele_owner else None
+                sent_idle = False
+            if tele_queue is None:
+                if not sent_idle:
+                    await _send_safe(ws, {"running": False, "nodes": [], "flows": [], "t": 0.0})
+                    sent_idle = True
+                await asyncio.sleep(0.2)
+                continue
+            try:
+                frame = await asyncio.wait_for(tele_queue.get(), timeout=0.5)
+            except asyncio.TimeoutError:
+                continue
             await _send_safe(ws, frame)
 
     async def _param_broadcast_loop() -> None:
@@ -91,9 +107,8 @@ async def telemetry_ws(ws: WebSocket) -> None:
     try:
         tasks = [
             asyncio.create_task(_recv_loop(), name="ws-recv"),
+            asyncio.create_task(_tele_loop(), name="ws-tele"),
         ]
-        if tele_queue is not None:
-            tasks.append(asyncio.create_task(_tele_loop(), name="ws-tele"))
         if param_queue is not None:
             tasks.append(asyncio.create_task(_param_broadcast_loop(), name="ws-param"))
 
@@ -116,8 +131,8 @@ async def telemetry_ws(ws: WebSocket) -> None:
             task.cancel()
         if param_queue is not None and sess.param_store is not None:
             sess.param_store.unsubscribe(param_queue)
-        if tele_queue is not None and sess.telemetry is not None:
-            sess.telemetry.unsubscribe(tele_queue)
+        if tele_queue is not None and tele_owner is not None:
+            tele_owner.unsubscribe(tele_queue)
         try:
             await ws.close()
         except Exception:
@@ -149,7 +164,7 @@ async def _handle_param_set(ws: WebSocket, msg: dict[str, Any], req_id: str) -> 
     if store is None:
         await _send_safe(ws, {"type": "param_response", "reqId": req_id, "ok": False, "reason": "param_store not ready"})
         return
-    result = store.set(key, value, source="ws")
+    result = await asyncio.to_thread(store.set, key, value, source="ws")
     await _send_safe(ws, {
         "type": "param_response",
         "reqId": req_id,
@@ -163,7 +178,7 @@ async def _handle_param_batch_set(ws: WebSocket, msg: dict[str, Any], req_id: st
     if store is None:
         await _send_safe(ws, {"type": "param_batch_response", "reqId": req_id, "ok": False, "reason": "param_store not ready"})
         return
-    results = store.batch_set(params, source="ws")
+    results = await asyncio.to_thread(store.batch_set, params, source="ws")
     ok = all(r.get("ok") for r in results)
     await _send_safe(ws, {
         "type": "param_batch_response",

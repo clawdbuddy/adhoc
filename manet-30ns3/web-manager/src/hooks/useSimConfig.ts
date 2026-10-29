@@ -76,7 +76,13 @@ export function useSimConfig(sim?: SimApi) {
       setPresets(presetData);
       if (saved && typeof saved === 'object' && !Array.isArray(saved)) {
         // ParamStore.get_all() 返回的是 flat 参数对象；直接合并到 SimConfig
-        setConfig(prev => ({ ...prev, ...saved }));
+        setConfig(prev => {
+          const loaded = { ...prev, ...saved };
+          lastSavedJsonRef.current = JSON.stringify(loaded);
+          return loaded;
+        });
+      } else {
+        throw new Error('无法读取已保存配置，已暂停自动保存');
       }
       setReady(true);
     }).catch((e) => {
@@ -187,7 +193,7 @@ export function useSimConfig(sim?: SimApi) {
           .filter((r: { ok?: boolean }) => r.ok === false)
           .map((r: { key?: string; reason?: string }) => r.key || r.reason || 'unknown')
           .join(', ');
-        if (reasons) console.warn('save partial failures:', reasons);
+        throw new Error(data.reason || reasons || '后端未能完整保存配置');
       }
       lastSavedJsonRef.current = JSON.stringify(cfg);
       setSaveStatus('saved');
@@ -195,33 +201,12 @@ export function useSimConfig(sim?: SimApi) {
     } catch (e) {
       console.warn('saveConfig REST failed:', e);
 
-      // 兜底：WebSocket 路径（仿真运行中需要实时下发的参数）
-      if (sim) {
-        try {
-          const params: Record<string, unknown> = {};
-          (Object.keys(cfg) as Array<keyof SimConfig>).forEach(key => {
-            params[key] = cfg[key];
-          });
-          const result = await sim.batchSetParams(params);
-          const realFailures = (result.results || []).filter(
-            (r: { ok: boolean; reason?: string }) => !r.ok && !(r.reason || '').includes('requires simulator restart')
-          );
-          if (realFailures.length === 0) {
-            lastSavedJsonRef.current = JSON.stringify(cfg);
-            setSaveStatus('saved');
-            setTimeout(() => setSaveStatus('idle'), 2000);
-            return;
-          }
-        } catch {
-          // WS 也失败，继续报 error
-        }
-      }
-
       setSaveStatus('error');
     }
-  }, [sim]);
+  }, []);
 
   useEffect(() => {
+    if (!ready || error) return;
     if (saveTimerRef.current) {
       clearTimeout(saveTimerRef.current);
     }
@@ -235,7 +220,7 @@ export function useSimConfig(sim?: SimApi) {
         clearTimeout(saveTimerRef.current);
       }
     };
-  }, [config, saveConfig]);
+  }, [config, saveConfig, ready, error]);
 
   return {
     config,

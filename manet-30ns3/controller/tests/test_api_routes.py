@@ -259,3 +259,36 @@ class TestSimPath:
         data = response.json()
         assert "ips" in data
         assert len(data["ips"]) == len(data["path"])
+
+class TestTelemetryLifecycle:
+    def test_existing_websocket_follows_start_and_stop(self):
+        import asyncio
+        from types import SimpleNamespace
+        from controller.api.main import app
+        from controller.orchestrator.config import SimConfig
+        from controller.orchestrator.param_store import ParamStore
+
+        class TelemetryStub:
+            unsubscribed = False
+
+            def subscribe(self):
+                queue = asyncio.Queue()
+                queue.put_nowait({'running': True, 'nodes': [], 'flows': [], 't': 1})
+                return queue
+
+            def unsubscribe(self, queue):
+                self.unsubscribed = True
+
+        session = SimpleNamespace(telemetry=None, config=SimConfig())
+        session.param_store = ParamStore(session)
+        app.router.lifespan_context = _stub_lifespan
+        with patch('controller.api.ws_telemetry.get_session', return_value=session):
+            with TestClient(app) as client:
+                with client.websocket_connect('/ws/telemetry') as ws:
+                    assert ws.receive_json()['running'] is False
+                    telemetry = TelemetryStub()
+                    session.telemetry = telemetry
+                    assert ws.receive_json()['running'] is True
+                    session.telemetry = None
+                    assert ws.receive_json()['running'] is False
+                    assert telemetry.unsubscribed

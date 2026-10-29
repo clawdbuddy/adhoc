@@ -64,7 +64,8 @@ class ParamStore:
     def __init__(self, session: Any) -> None:
         self._session = session
         self._lock = threading.RLock()
-        self._subscribers: list[asyncio.Queue] = []
+        self._subscribers: dict[asyncio.Queue, asyncio.AbstractEventLoop] = {}
+        self._subscriber_lock = threading.Lock()
         self._static_registry: dict[str, ParamMeta] = {}
         self._build_static_registry()
 
@@ -190,6 +191,20 @@ class ParamStore:
                 if result.get("ok"):
                     self._broadcast(ParamChangeEvent(key, value, meta.scope, source))
         return results
+
+    def save_config(self, config: SimConfig, source: str = "api") -> dict[str, Any]:
+        """保存下次启动用的完整配置；写盘成功后再更新内存与通知。"""
+        with self._lock:
+            previous = self._session.config.model_dump(by_alias=True)
+            try:
+                save_config_to_file(config)
+            except Exception as exc:
+                return {"ok": False, "reason": str(exc)}
+            self._session.config = config
+        for key, value in config.model_dump(by_alias=True).items():
+            if previous.get(key) != value:
+                self._broadcast(ParamChangeEvent(key, value, "static", source))
+        return {"ok": True, "config": config.model_dump(by_alias=True)}
 
     def _set_locked(self, meta: ParamMeta, value: Any, source: str) -> dict[str, Any]:
         """实际写入逻辑（必须在锁内调用）。"""
@@ -379,26 +394,31 @@ class ParamStore:
     def subscribe(self) -> asyncio.Queue:
         """订阅参数变更事件。返回 asyncio.Queue，事件到达时放入队列。"""
         q: asyncio.Queue = asyncio.Queue(maxsize=64)
-        self._subscribers.append(q)
+        with self._subscriber_lock:
+            self._subscribers[q] = asyncio.get_running_loop()
         return q
 
     def unsubscribe(self, q: asyncio.Queue) -> None:
         """取消订阅。"""
-        try:
-            self._subscribers.remove(q)
-        except ValueError:
-            pass
+        with self._subscriber_lock:
+            self._subscribers.pop(q, None)
 
     def _broadcast(self, event: ParamChangeEvent) -> None:
         """广播参数变更事件到所有订阅者。"""
-        dead: list[asyncio.Queue] = []
-        for q in self._subscribers:
+        with self._subscriber_lock:
+            subscribers = list(self._subscribers.items())
+        for q, loop in subscribers:
             try:
-                q.put_nowait(event)
-            except asyncio.QueueFull:
-                dead.append(q)
-        for q in dead:
-            self.unsubscribe(q)
+                loop.call_soon_threadsafe(self._enqueue_event, q, event)
+            except RuntimeError:
+                self.unsubscribe(q)
+
+    @staticmethod
+    def _enqueue_event(q: asyncio.Queue, event: ParamChangeEvent) -> None:
+        """只在订阅者的事件循环中操作队列，慢客户端保留最新变更。"""
+        if q.full():
+            q.get_nowait()
+        q.put_nowait(event)
 
     # ------------------------------------------------------------------ 工具
 

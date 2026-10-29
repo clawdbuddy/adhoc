@@ -27,7 +27,7 @@ def _node_frame(spec: NodeSpec, sim_node, online: bool) -> dict[str, Any]:
         "role": spec.role,
         "rxPackets": int(sim_node.rx_packets) if sim_node else 0,
         "txPackets": int(sim_node.tx_packets) if sim_node else 0,
-        "latency": 0.0,
+        "latency": None,
         "neighbors": list(sim_node.neighbors) if sim_node else [],
         "x": float(sim_node.x) if sim_node else 0.0,
         "y": float(sim_node.y) if sim_node else 0.0,
@@ -132,6 +132,10 @@ class Telemetry:
             else:
                 online = self.docker.is_running(spec.id)
             nodes_out.append(_node_frame(spec, sim_nodes.get(spec.id), online))
+        for node in nodes_out:
+            received = [f for f in sim_flows if str(f.destination) == node["ip"] and f.rx_packets > 0]
+            weight = sum(f.rx_packets for f in received)
+            node["latency"] = sum(f.avg_delay * f.rx_packets for f in received) / weight if weight else None
         # 节点对聚合：把 5-tuple flow 折叠成 (srcId, dstId) 维度
         ip_to_id = {spec.ip: spec.id for spec in self.specs_by_id.values()}
         pairs_out = _aggregate_pairs(sim_flows, ip_to_id)
@@ -142,12 +146,22 @@ class Telemetry:
             "nodes": nodes_out,
             "flows": [_flow_frame(f) for f in sim_flows],
             "pairs": pairs_out,
+            "measurement": {
+                "enabled": self.sim.config.flow_monitor,
+                "delayUnit": "ms",
+                "throughputUnit": "Mbps",
+                "throughputWindow": "since-first-transmit",
+                "lossTimeoutSeconds": 10,
+                "source": "tap-capture" if self.sim.config.traffic_mode == "tap" else "flow-monitor",
+                "captureDrops": self.sim.capture_drops,
+            },
             "env": {
                 "txPower": env.tx_power,
                 "rxSensitivity": env.rx_sensitivity,
                 "positions": env.positions,
                 "pathLossExponent": env.path_loss_exponent,
                 "frequencyMhz": env.frequency_mhz,
+                "phyFrequencyMhz": env.phy_frequency_mhz,
                 "channelWidthMhz": env.channel_width_mhz,
                 "rangeTargetM": env.range_target_m,
             },

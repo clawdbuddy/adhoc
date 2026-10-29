@@ -34,6 +34,7 @@ interface DynamicControlProps {
 
 export function DynamicControl({ status, nodes, config, env, sim }: DynamicControlProps) {
   const ctrl = useDynamicControl(sim);
+  const allowedWidths = config.standard === '80211a' ? [20] : config.standard.includes('2.4GHz') || config.standard.includes('80211n') ? [20, 40] : [20, 40, 80, 160];
   const [selectedNode, setSelectedNode] = useState(0);
   const [posX, setPosX] = useState('');
   const [posY, setPosY] = useState('');
@@ -431,7 +432,7 @@ export function DynamicControl({ status, nodes, config, env, sim }: DynamicContr
               onValueChange={v => { setFrequency(v); markDirty(); }}
               min={300}
               max={5800}
-              step={10}
+              step={1}
               disabled={!running}
             />
             <Button
@@ -446,6 +447,7 @@ export function DynamicControl({ status, nodes, config, env, sim }: DynamicContr
               <Send className="h-3.5 w-3.5" />
               应用频率
             </Button>
+            <p className="text-xs text-muted-foreground">WiFi 频率须匹配当前带宽的合法中心频点。UHF 只调整传播损耗预算；当前 PHY 载波：{env?.phyFrequencyMhz ?? '—'} MHz。</p>
           </CardContent>
         </Card>
 
@@ -469,21 +471,21 @@ export function DynamicControl({ status, nodes, config, env, sim }: DynamicContr
           >
             <p className="text-xs text-amber-600 bg-amber-50/60 rounded-lg px-3 py-2 border border-amber-200/40"
             >
-              运行时修改不生效，需重启仿真才能应用
+              运行时切换会短暂中断通信；可选宽度取决于当前 WiFi 标准
             </p>
             <div className="flex items-center justify-between text-xs text-muted-foreground"
             >
-              <span>5 MHz</span>
+              <span>{allowedWidths[0]} MHz</span>
               <Badge variant="outline" className="font-mono text-sm"
               >{channelWidth[0]} MHz</Badge>
-              <span>80 MHz</span>
+              <span>{allowedWidths[allowedWidths.length - 1]} MHz</span>
             </div>
             <Slider
-              value={channelWidth}
-              onValueChange={v => { setChannelWidth(v); markDirty(); }}
-              min={5}
-              max={80}
-              step={5}
+              value={[allowedWidths.indexOf(channelWidth[0])]}
+              onValueChange={v => { setChannelWidth([allowedWidths[v[0]] ?? allowedWidths[0]]); markDirty(); }}
+              min={0}
+              max={Math.max(1, allowedWidths.length - 1)}
+              step={1}
               disabled={!running}
             />
             <Button

@@ -158,6 +158,8 @@ class Session:
     preset: Optional[str] = None
     _lock: threading.Lock = field(default_factory=threading.Lock)
 
+    _watch_task: asyncio.Task | None = field(default=None, repr=False)
+
     def __post_init__(self):
         # ParamStore 始终存活，支持无仿真时的参数读写
         if self.param_store is None:
@@ -186,6 +188,8 @@ class Session:
         if overrides:
             cfg = cfg.merged_with(overrides)
 
+        if cfg.mac_mode == "adhoc" and cfg.traffic_mode == "tap":
+            raise ValueError("当前 cppyy 绑定不支持安全运行 AdHoc + TAP；请使用 Mesh 或 AdHoc onoff 模式")
         specs = nodes if nodes is not None else default_node_specs(cfg)
 
         # 按 host 分组节点
@@ -305,7 +309,7 @@ class Session:
                 )
 
         # 4. 启动 ns-3 仿真器（驱动所有 TAP）
-        sim = SimRunner(cfg)
+        sim = SimRunner(cfg, node_ips={s.ip: s.id for s in specs})
         try:
             await asyncio.to_thread(sim.start)
         except Exception:
@@ -399,6 +403,14 @@ class Session:
             self.telemetry = tele
             self.specs = specs
             self.preset = preset
+        self._watch_task = asyncio.create_task(self._watch_simulation(sim), name="simulation-cleanup")
+
+    async def _watch_simulation(self, sim: SimRunner) -> None:
+        """自然到期或异常退出后释放容器与网络资源。"""
+        while self.sim is sim and sim.running:
+            await asyncio.sleep(0.2)
+        if self.sim is sim:
+            await self.stop()
 
     async def stop(self) -> None:
         """best-effort 停止与清理。
@@ -406,11 +418,18 @@ class Session:
         即使 sim 已崩溃 (sess.running == False),仍要走一遍下面的清理路径,
         把上一次仿真留下的 docker 容器/mesh-br/mesh-tap/mesh-veth 兜底删干净。
         """
+        watcher = self._watch_task
+        self._watch_task = None
+        if watcher is not None and watcher is not asyncio.current_task():
+            watcher.cancel()
+        # 仿真退出前不能拆除 TAP；停止超时向调用者报告并保留资源引用。
+        if self.sim is not None:
+            await asyncio.to_thread(self.sim.stop)
         with self._lock:
             sim, docker_mgr, remote_mgrs, host_mgrs, tele, specs = (
                 self.sim, self.docker_mgr, self.remote_mgrs, self.host_mgrs, self.telemetry, self.specs
             )
-            cfg = self.config
+            cfg = sim.config if sim is not None else self.config
             last_preset = self.preset
             self.sim = self.docker_mgr = self.telemetry = None
             self.remote_mgrs = {}
@@ -425,7 +444,7 @@ class Session:
                 log.warning("telemetry.stop() 抛异常: %s", e)
         if sim is not None:
             try:
-                sim.stop()
+                await asyncio.to_thread(sim.stop)
             except Exception as e:  # noqa: BLE001
                 log.warning("sim.stop() 抛异常: %s", e)
         if docker_mgr is not None:

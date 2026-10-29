@@ -1,6 +1,14 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
 import { useSimConfig } from './useSimConfig';
+
+beforeEach(() => {
+  vi.stubGlobal('fetch', vi.fn(() => new Promise<Response>(() => {})));
+});
+afterEach(() => {
+  vi.unstubAllGlobals();
+  vi.useRealTimers();
+});
 
 describe('useSimConfig', () => {
   it('should initialize with fallback config', () => {
@@ -98,5 +106,40 @@ describe('useSimConfig', () => {
 
     // nNodes stays at 99 because presets haven't loaded yet
     expect(result.current.config.nNodes).toBe(99);
+  });
+});
+
+// 慢读配置和应用层保存失败必须覆盖，防止刷新页面破坏已有实验配置。
+describe('configuration persistence regressions', () => {
+  it('does not save fallback while initial reads are pending', async () => {
+    const { vi } = await import('vitest');
+    vi.useFakeTimers();
+    const fetchMock = vi.fn<(url: string, options?: RequestInit) => Promise<Response>>(() => new Promise<Response>(() => {}));
+    vi.stubGlobal('fetch', fetchMock);
+    const hook = renderHook(() => useSimConfig());
+    await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock.mock.calls.every(call => call.length === 1)).toBe(true);
+    hook.unmount();
+    vi.unstubAllGlobals();
+    vi.useRealTimers();
+  });
+
+  it('reports backend save rejection instead of saved', async () => {
+    const { vi } = await import('vitest');
+    vi.useFakeTimers();
+    const fetchMock = vi.fn().mockImplementation((_url: string, options?: RequestInit) => Promise.resolve({
+      ok: true,
+      json: async () => options?.method === 'PUT' ? { ok: false, reason: 'disk full' } : {},
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+    const hook = renderHook(() => useSimConfig());
+    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+    act(() => { hook.result.current.updateConfig('nNodes', 8); });
+    await act(async () => { await vi.advanceTimersByTimeAsync(600); });
+    expect(hook.result.current.saveStatus).toBe('error');
+    hook.unmount();
+    vi.unstubAllGlobals();
+    vi.useRealTimers();
   });
 });

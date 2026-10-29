@@ -18,6 +18,7 @@ interface TelemetryFrame {
   pairs?: NodePairFlow[];
   env?: TelemetryEnv;
   ts: number;
+  measurement?: { captureDrops: number };
 }
 
 function aggregateStatus(frame: TelemetryFrame, prevStartTime: string | null): SimulationStatus {
@@ -64,6 +65,7 @@ export function useSimulation(initialNnodes: number = 5) {
   const [env, setEnv] = useState<TelemetryEnv | null>(null);
   const [logs, setLogs] = useState<string[]>([]);
   const wsRef = useRef<WebSocket | null>(null);
+  const captureDropsRef = useRef(0);
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const connectWsRef = useRef<(() => void) | null>(null);
   const pendingRef = useRef<Map<string, PendingRequest>>(new Map());
@@ -232,6 +234,11 @@ export function useSimulation(initialNnodes: number = 5) {
 
         // 3. 遥测帧（无 type 字段或 type 为 undefined）
         const frame = msg as unknown as TelemetryFrame;
+        const captureDrops = frame.measurement?.captureDrops ?? 0;
+        if (captureDrops > captureDropsRef.current) {
+          addLog(`[telemetry] 采集器累计丢帧 ${captureDrops}，流量统计可能不完整`);
+        }
+        captureDropsRef.current = captureDrops;
         setNodes(frame.nodes ?? []);
         setFlows(frame.flows ?? []);
         setPairs(frame.pairs ?? []);
@@ -250,13 +257,14 @@ export function useSimulation(initialNnodes: number = 5) {
 
   useEffect(() => {
     connectWs();
+    const pendingRequests = pendingRef.current;
     return () => {
       // 清理 pending requests，避免 setState on unmounted component
-      pendingRef.current.forEach(({ reject, timer }) => {
+      pendingRequests.forEach(({ reject, timer }) => {
         clearTimeout(timer);
         reject(new Error('component unmounted'));
       });
-      pendingRef.current.clear();
+      pendingRequests.clear();
       if (reconnectTimerRef.current) clearTimeout(reconnectTimerRef.current);
       if (wsRef.current) {
         wsRef.current.onclose = null;  // suppress reconnect on unmount

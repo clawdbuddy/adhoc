@@ -81,9 +81,9 @@ class TestSimConfigDefaults:
         # other fields untouched
         assert merged.simulation_time == 300
 
-    def test_mac_mode_forced_to_mesh(self):
+    def test_mac_mode_preserved(self):
         cfg = SimConfig(mac_mode="adhoc")
-        assert cfg.mac_mode == "mesh"
+        assert cfg.mac_mode == "adhoc"
 
 
 class TestNodeSpec:

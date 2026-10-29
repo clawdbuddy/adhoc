@@ -543,7 +543,7 @@ export function TopologyView({ nodes, flows, running, compact, sim }: TopologyVi
                             return (
                               <td
                                 key={d.id}
-                                title={`N${s.id} → N${d.id}\n距离: ${dist.toFixed(0)} m\n${reachable ? '可达 (在通信范围内)' : '不可达 (超出通信范围)'}`}
+                                title={`N${s.id} → N${d.id}\n距离: ${dist.toFixed(0)} m\n${reachable ? '已建立 Mesh peer 链路' : '未建立直接 Mesh peer 链路'}`}
                                 className="px-2 py-1.5 border border-border text-center font-mono transition-colors"
                                 style={reachabilityCellStyle(reachable)}
                               >
@@ -585,6 +585,7 @@ export function TopologyView({ nodes, flows, running, compact, sim }: TopologyVi
                     <span className="text-xs font-mono tabular-nums">发: {flow.txPackets.toLocaleString()}</span>
                     <span className="text-xs font-mono tabular-nums">收: {flow.rxPackets.toLocaleString()}</span>
                     <span className="text-xs text-destructive font-mono tabular-nums">丢失: {flow.lostPackets}</span>
+                    <span className="text-xs font-mono tabular-nums">延迟: {flow.rxPackets ? `${flow.avgDelay.toFixed(2)} ms` : '—'}</span>
                     <span className="text-xs text-purple-600 font-mono tabular-nums font-medium">{(flow.throughput).toFixed(2)} Mbps</span>
                   </div>
                 ))}

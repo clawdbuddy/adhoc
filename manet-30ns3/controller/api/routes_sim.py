@@ -29,7 +29,7 @@ async def start_sim(req: RunRequest | None = None) -> dict[str, Any]:
             overrides=req.overrides or {},
             nodes=req.nodes,
         )
-    except KeyError as e:
+    except (KeyError, ValueError) as e:
         raise HTTPException(400, str(e)) from e
     except Exception as e:  # noqa: BLE001
         log.exception("仿真启动失败")
@@ -57,7 +57,7 @@ async def status() -> dict[str, Any]:
     return {
         "running": sess.running,
         "elapsed": sim.elapsed if sim else 0.0,
-        "totalNodes": sess.config.n_nodes if sess.running else 0,
+        "totalNodes": len(sess.specs) if sess.running else 0,
         "nodesOnline": sum(
             1 for s in sess.specs
             if (
@@ -79,12 +79,7 @@ async def list_presets() -> dict[str, dict[str, Any]]:
 
 @router.get("/path")
 async def find_path(src: int, dst: int) -> dict[str, Any]:
-    """基于当前邻居图的 BFS,返回 src→dst 的最少跳数路径。
-
-    路径反映"几何上谁能听到谁"——`_nodes_runtime[i].neighbors` 由 wall_pacer
-    每 100ms 根据节点位置 + range_target_m 重算。在 mesh 模式下与 HWMP
-    实际选择的多跳路径强相关,可作为前端拓扑可视化的近似。
-    """
+    """基于实际 Mesh peer 图返回最少跳数路径；不是 HWMP 转发表查询。"""
     sess = get_session()
     if not sess.sim or not sess.running:
         raise HTTPException(409, "没有正在运行的仿真")
@@ -104,4 +99,5 @@ async def find_path(src: int, dst: int) -> dict[str, Any]:
         "ips": [ip_by_id.get(nid, "") for nid in path],
         "hops": len(path) - 1,
         "reachable": True,
+        "pathSource": "mesh-peer-bfs",
     }

@@ -15,7 +15,7 @@ import re
 from pathlib import Path
 from typing import Any, Literal, Mapping
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 from pydantic.alias_generators import to_camel
 
 # ----- supported enums (mirror manet-30ns3/web-manager/src/types/config.ts) ----------------------
@@ -48,6 +48,7 @@ class _CamelModel(BaseModel):
         alias_generator=to_camel,
         populate_by_name=True,
         extra="ignore",
+        allow_inf_nan=False,
     )
 
 
@@ -63,7 +64,7 @@ class SimConfig(_CamelModel):
 
     # --- General [全局] ---
     n_nodes: int = Field(default=5, ge=2, le=16)
-    simulation_time: float = 300
+    simulation_time: float = Field(default=300, gt=0)
     seed: int = 1
     run: int = 1
     log_components: str = ""
@@ -121,15 +122,7 @@ class SimConfig(_CamelModel):
     mac_mode: MacMode = "mesh"
     rate_control: RateControl = "Constant"
 
-    @field_validator("mac_mode", mode="after")
-    @classmethod
-    def _force_mesh(cls, v: str) -> str:
-        """NS-3.47 + cppyy 下 adhoc 模式会触发 Txop segfault，强制使用 mesh。"""
-        if v != "mesh":
-            return "mesh"
-        return v
-
-    # --- MAC device [预留] — 当前代码未接入 ns-3，预留字段 ---
+    # --- MAC device [全局] ---
     rts_cts_threshold: int = 2200
     fragmentation_threshold: int = 2200
     non_unicast_mode: bool = False
@@ -212,6 +205,23 @@ class SimConfig(_CamelModel):
         description="Per-node external MACs that should be announced as proxy entries, "
         "e.g. {\"1\": [\"02:00:00:ff:00:01\"]} for node 1 advertising an external MAC",
     )
+
+    @model_validator(mode="after")
+    def validate_radio(self) -> "SimConfig":
+        """在创建 ns-3 对象前拒绝可能导致进程终止的非法无线配置。"""
+        if self.standard == "80211a":
+            widths = {20}
+        elif "80211n" in self.standard or "2.4GHz" in self.standard:
+            widths = {20, 40}
+        else:
+            widths = {20, 40, 80, 160}
+        if self.channel_width_mhz not in widths:
+            raise ValueError(f"{self.standard} 不支持 {self.channel_width_mhz} MHz，允许 {sorted(widths)}")
+        if self.cw_min < 0 or self.cw_max < self.cw_min:
+            raise ValueError("竞争窗口要求 0 <= cwMin <= cwMax")
+        if self.grid_width <= 0 or self.beacon_interval <= 0:
+            raise ValueError("gridWidth 和 beaconInterval 必须大于 0")
+        return self
 
     # ----- helpers -----------------------------------------------------------
     def merged_with(self, partial: Mapping[str, Any]) -> "SimConfig":
@@ -685,15 +695,15 @@ FIELD_DESCRIPTIONS: dict[str, str] = {
     # --- MAC network [全局] ---
     "ssid": "[全局] SSID：网络标识符",
     "bssid": "[全局] BSSID：基本服务集标识符（MAC 格式）",
-    "macMode": "[全局] MAC 模式：当前版本强制 mesh（802.11s），adhoc 已禁用",
+    "macMode": "[全局] MAC 模式：mesh（802.11s）或 adhoc（IBSS）；已知不兼容的绑定组合在启动时拒绝",
     "rateControl": "[全局] 速率控制算法：Arf/Aarf/Onoe/Constant/Minstrel",
     # --- MAC device [预留] ---
-    "rtsCtsThreshold": "[预留] RTS/CTS 阈值：当前代码未接入 ns-3",
-    "fragmentationThreshold": "[预留] 分片阈值：当前代码未接入 ns-3",
-    "nonUnicastMode": "[预留] 非单播模式：当前代码未接入 ns-3",
-    "beaconInterval": "[预留] 信标间隔：当前代码未接入 ns-3",
-    "cwMin": "[预留] 最小竞争窗口：当前代码未接入 ns-3",
-    "cwMax": "[预留] 最大竞争窗口：当前代码未接入 ns-3",
+    "rtsCtsThreshold": "[全局] RTS/CTS 阈值：启动时应用到实际 WiFi 设备",
+    "fragmentationThreshold": "[全局] 分片阈值：启动时应用到实际 WiFi 设备",
+    "nonUnicastMode": "[全局] 非单播模式：启动时应用到实际 WiFi 设备",
+    "beaconInterval": "[全局] 信标间隔：启动时应用到实际 WiFi 设备",
+    "cwMin": "[全局] 最小竞争窗口：启动时应用到实际 WiFi 设备",
+    "cwMax": "[全局] 最大竞争窗口：启动时应用到实际 WiFi 设备",
     # --- Routing [全局] ---
     "routingProtocol": "[全局] 路由协议：aodv/olsr/dsdv/dsr/none",
     "aodvHelloInterval": "[全局] AODV Hello 间隔：邻居发现广播间隔（秒）",

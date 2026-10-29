@@ -244,7 +244,7 @@ ip link | grep -E 'mesh-|vxlan-' || echo "clean"
 | `default` | 用户目标 | mesh, 5000x5000, FreeSpace, Tx=30dBm |
 | `urban` | 高密度城市 | mesh, LogDistance n=3.5, Nakagami, 2km |
 | `rural` | 开阔野外 | mesh, FreeSpace, Grid 8km, 无衰落 |
-| `tactical` | 战术通信 | mesh, UHF 590MHz, TwoRayGround, Tx=37dBm |
+| `tactical` | 战术通信 | 10 节点 mesh, UHF 590MHz, FreeSpace, Tx=30dBm, 6Mbps |
 
 ---
 
@@ -288,3 +288,23 @@ manet-30ns3/
 - 内核模块：`tun`, `tap`, `bridge`
 - CPU ≥ 4 核, 内存 ≥ 4 GB
 - 控制器需 `--privileged --network host --pid host`
+
+
+## 无线配置与统计的实现边界
+
+- 标准、速率控制、RTS/CTS、分片阈值、竞争窗口和带宽作用于实际 WiFi 接口。MeshHelper 安装阶段使用合法的 5 GHz 代理频道，安装完成后设置目标频段与带宽。
+- `simulationTime` 按仿真时间自动结束；会话随后清理节点容器与网络设备。实时模式使用 BestEffort，主机过载或 cppyy 首次编译时可能落后于墙钟。
+- 动态命令与 ns-3 状态采样都在仿真线程执行；API 读取快照，不跨线程操作模型对象。队列满或等待超时会报告失败。
+- `PUT /api/config` 原子保存下次启动的配置；运行中的修改使用 `/api/env/*` 或 WebSocket 参数接口。前端读取初始配置成功后才允许自动保存。
+- 当前 cppyy 路线对 AdHoc + TAP 组合显式拒绝启动，以避免已知崩溃；AdHoc + onoff 与 Mesh 模式保留。完整容器 AdHoc 支持仍需后续绑定修复，不能视作已验收。
+- WiFi 动态频点须与当前标准、带宽匹配。UHF 仍是传播损耗预算模拟，实际调制使用 WiFi 代理载波；遥测 `env.phyFrequencyMhz` 返回实际载波，`env.frequencyMhz` 返回预算频率。
+- TAP 业务流量通过独立接口上的 AF_PACKET 被动采集，当前覆盖已知节点之间的单播 IPv4。延迟单位为毫秒，吞吐单位为 Mbps（自首次发送起累计平均），丢包为发送 10 秒后仍未观察到接收的包。`measurement.captureDrops` 标记采集器自身丢帧，出现丢帧时统计不完整。IPv6、广播端到端统计未实现。
+- 拓扑邻居来自实际已建立的 Mesh peer；`/api/sim/path` 是该 peer 图上的 BFS 路径，不代表 HWMP 实际选路或业务成功交付。
+
+内部流量冒烟验证（不需要 Docker，不创建宿主网络接口）：
+
+```bash
+PYTHONPATH=. python3 tests/smoke_sim_runner.py
+```
+
+此冒烟覆盖真实 ns-3 启动、位置/功率调整、20→40 MHz 切换、源目的流量统计和自然停止。容器 TAP/VXLAN 的端到端效果及目标平台 ns-3.47 仍需在部署环境运行集成测试。

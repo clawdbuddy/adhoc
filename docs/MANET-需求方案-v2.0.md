@@ -7,7 +7,7 @@
 | 文档版本 | v2.0 |
 | 更新日期 | 2026-05-02 |
 | 适用范围 | manet-30ns3/web-manager/ + manet-30ns3/ 全栈 |
-| 状态 | 已实现并验证 |
+| 状态 | 需求基线；实际支持范围与验证边界见 manet-30ns3/README.md |
 
 ---
 
@@ -28,7 +28,7 @@
 | 子功能 | 状态 | 说明 |
 |--------|------|------|
 | R1.1 独立网络命名空间 | ✅ | 每个节点 `network_mode="none"`，通过 veth 注入 |
-| R1.2 Linux 网桥聚合 | ✅ | `br-ns3` 连接所有 veth 宿主端 + TAP 设备 |
+| R1.2 Linux 网桥聚合 | ✅ | 每节点独立网桥，仅连接本节点 veth 宿主端 + TAP，禁止共享桥绕过 ns-3 |
 | R1.3 强制 ns-3 转发 | ✅ | 节点间无直接路径，所有帧必经 ns-3 PHY/MAC |
 | R1.4 IP 地址分配 | ✅ | 子网 `192.168.100.0/24`，节点 i → `.10+i` |
 | R1.5 节点角色定义 | ✅ | server(0)、gateway(15)、client(其余) |
@@ -186,7 +186,7 @@ def load_config(*, file_path=None, overrides=None, preset=None):
 | urban | 16 节点、LogDistance n=3.5、Nakagami 衰落、2 km、AARF |
 | rural | 16 节点、FreeSpace、Grid 8×8 km、33 dBm、OLSR |
 | debug | 5 节点、adhoc、无路由、Grid 300×300 m、ASCII trace |
-| tactical | 8 节点、Grid 5×5 km、UHF 590 MHz、6 Mbps、4 km |
+| tactical | 10 节点、Grid 5×5 km、UHF 590 MHz、6 Mbps、4 km |
 
 ---
 

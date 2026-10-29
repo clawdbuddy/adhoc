@@ -123,7 +123,7 @@ export interface NodeStatus {
   role: string;
   rxPackets: number;
   txPackets: number;
-  latency: number;
+  latency: number | null;
   neighbors: number[];
   x: number;
   y: number;
@@ -136,7 +136,7 @@ export interface FlowStats {
   txPackets: number;
   rxPackets: number;
   lostPackets: number;
-  avgDelay: number;
+  avgDelay: number; // 毫秒
   throughput: number;
 }
 
@@ -149,7 +149,7 @@ export interface NodePairFlow {
   rxPackets: number;
   lostPackets: number;
   throughput: number;  // Mbps
-  avgDelay: number;
+  avgDelay: number; // 毫秒
 }
 
 export interface NodeSpec {
@@ -177,6 +177,7 @@ export interface SimulationStatus {
 }
 
 export interface TelemetryEnv {
+  phyFrequencyMhz?: number;
   txPower: number[];
   rxSensitivity: number[];
   positions: { x: number; y: number; z: number }[];

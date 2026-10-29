@@ -42,6 +42,7 @@ log "开始 PyInstaller 打包..."
 pyinstaller \
     --onedir \
     --name manet-controller \
+    --add-data "${SCRIPT_DIR}/controller/orchestrator/sim_runtime.h:controller/orchestrator" \
     --add-data "${SCRIPT_DIR}/web-manager/dist:web-manager/dist" \
     --hidden-import=ns.core \
     --hidden-import=ns.network \

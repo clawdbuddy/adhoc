@@ -5,6 +5,7 @@
 """
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
 from fastapi import APIRouter, HTTPException
@@ -67,7 +68,7 @@ def _param_store() -> Any:
 async def set_tx_power(body: TxPowerBody) -> dict[str, Any]:
     """修改指定节点的发射功率。"""
     _check_running()
-    result = _param_store().set("txPower", {body.nodeId: body.dbm}, source="rest")
+    result = await asyncio.to_thread(_param_store().set, "txPower", {body.nodeId: body.dbm}, source="rest")
     return {"ok": result.get("ok", False), "nodeId": body.nodeId, "dbm": body.dbm, **result}
 
 
@@ -75,7 +76,7 @@ async def set_tx_power(body: TxPowerBody) -> dict[str, Any]:
 async def set_position(body: PositionBody) -> dict[str, Any]:
     """将指定节点跃迁到指定坐标。"""
     _check_running()
-    result = _param_store().set("positions", {body.nodeId: {"x": body.x, "y": body.y, "z": body.z}}, source="rest")
+    result = await asyncio.to_thread(_param_store().set, "positions", {body.nodeId: {"x": body.x, "y": body.y, "z": body.z}}, source="rest")
     return {"ok": result.get("ok", False), "nodeId": body.nodeId, "x": body.x, "y": body.y, "z": body.z, **result}
 
 
@@ -83,7 +84,7 @@ async def set_position(body: PositionBody) -> dict[str, Any]:
 async def set_rx_sensitivity(body: RxSensBody) -> dict[str, Any]:
     """修改指定节点的接收灵敏度。"""
     _check_running()
-    result = _param_store().set("rxSensitivity", {body.nodeId: body.dbm}, source="rest")
+    result = await asyncio.to_thread(_param_store().set, "rxSensitivity", {body.nodeId: body.dbm}, source="rest")
     return {"ok": result.get("ok", False), "nodeId": body.nodeId, "dbm": body.dbm, **result}
 
 
@@ -91,7 +92,7 @@ async def set_rx_sensitivity(body: RxSensBody) -> dict[str, Any]:
 async def set_path_loss_exponent(body: PathLossBody) -> dict[str, Any]:
     """修改全局路径损耗指数（仅 LogDistance 模型生效）。"""
     _check_running()
-    result = _param_store().set("pathLossExponent", body.exponent, source="rest")
+    result = await asyncio.to_thread(_param_store().set, "pathLossExponent", body.exponent, source="rest")
     return {"ok": result.get("ok", False), "exponent": body.exponent, **result}
 
 
@@ -99,7 +100,7 @@ async def set_path_loss_exponent(body: PathLossBody) -> dict[str, Any]:
 async def set_frequency(body: FrequencyBody) -> dict[str, Any]:
     """修改全局中心频率（MHz）。"""
     _check_running()
-    result = _param_store().set("frequencyMhz", body.mhz, source="rest")
+    result = await asyncio.to_thread(_param_store().set, "frequencyMhz", body.mhz, source="rest")
     return {"ok": result.get("ok", False), "mhz": body.mhz, **result}
 
 
@@ -107,7 +108,7 @@ async def set_frequency(body: FrequencyBody) -> dict[str, Any]:
 async def set_channel_width(body: ChannelWidthBody) -> dict[str, Any]:
     """修改全局信道宽度（MHz）。"""
     _check_running()
-    result = _param_store().set("channelWidthMhz", body.mhz, source="rest")
+    result = await asyncio.to_thread(_param_store().set, "channelWidthMhz", body.mhz, source="rest")
     return {"ok": result.get("ok", False), "mhz": body.mhz, **result}
 
 
@@ -115,7 +116,7 @@ async def set_channel_width(body: ChannelWidthBody) -> dict[str, Any]:
 async def set_range_target(body: RangeBody) -> dict[str, Any]:
     """修改 Range 传播模型的最大通信距离（米）。"""
     _check_running()
-    result = _param_store().set("rangeTargetM", body.meters, source="rest")
+    result = await asyncio.to_thread(_param_store().set, "rangeTargetM", body.meters, source="rest")
     return {"ok": result.get("ok", False), "meters": body.meters, **result}
 
 
@@ -134,6 +135,7 @@ async def get_current_env() -> dict[str, Any]:
             "positions": env.positions,
             "pathLossExponent": env.path_loss_exponent,
             "frequencyMhz": env.frequency_mhz,
+            "phyFrequencyMhz": env.phy_frequency_mhz,
             "channelWidthMhz": env.channel_width_mhz,
             "rangeTargetM": env.range_target_m,
             "pathLossModel": env.path_loss_model,
@@ -144,7 +146,18 @@ async def get_current_env() -> dict[str, Any]:
 @router.get("/api/env/capabilities")
 async def get_capabilities() -> dict[str, Any]:
     """返回当前支持的动态调整能力列表。"""
+    sess = get_session()
+    config = sess.sim.config if sess.sim else sess.config
+    if config.standard == "80211a":
+        widths = [20]
+    elif "2.4GHz" in config.standard or "80211n" in config.standard:
+        widths = [20, 40]
+    else:
+        widths = [20, 40, 80, 160]
     return {
+        "frequencyScope": "WiFi PHY and propagation-loss; UHF uses a WiFi proxy carrier",
+        "channelWidths": widths,
+        "pathLossAdjustable": config.path_loss_model == "LogDistance",
         "capabilities": [
             {"id": "txpower", "name": "发射功率", "unit": "dBm", "scope": "per-node"},
             {"id": "position", "name": "节点位置", "unit": "m", "scope": "per-node"},
